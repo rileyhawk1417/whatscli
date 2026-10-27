@@ -34,6 +34,15 @@ Design decisions: `00-design-decisions.md` (D1–D7, all settled)
 | 08 | Remove tview/tcell/cbind, delete legacy files, fix tests | 01–07 | ✅ done | [08-cleanup.md](08-cleanup.md) |
 | 09 | Test coverage, race verification, manual QA checklist | 08 | ✅ done | [09-testing-and-qa.md](09-testing-and-qa.md) |
 
+## Post-migration work
+
+Themes and painted surfaces shipped after task 09 (`127b9f6`, `1ab7c1a`); the
+remaining work — themes, shipping and sign-off — is planned in one file:
+
+| ID | Item | Status | Detail |
+|----|------|--------|--------|
+| 10 | What remains: M4 sign-off, shipping, theme follow-ups | 📋 planned | [10-what-remains.md](10-what-remains.md) |
+
 ## Working agreements
 
 - Every task: build green (`make build`), `make vet` clean, `make test` passing
