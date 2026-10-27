@@ -1,0 +1,730 @@
+package main
+
+import (
+	"fmt"
+	"github.com/skratchdot/open-golang/open"
+	"strings"
+
+	"github.com/atotto/clipboard"
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/normen/whatscli/config"
+	"github.com/normen/whatscli/messages"
+)
+
+// focusArea identifies which pane owns keyboard input. It replaces tview's
+// implicit focus tracking (ctx.App.GetFocus()).
+type focusArea int
+
+const (
+	focusStatus focusArea = iota
+	focusChats
+	focusGroups
+	focusMessages
+	focusInput
+)
+
+func (f focusArea) String() string {
+	switch f {
+	case focusStatus:
+		return "status"
+	case focusChats:
+		return "chats"
+	case focusGroups:
+		return "groups"
+	case focusMessages:
+		return "messages"
+	case focusInput:
+		return "input"
+	}
+	return "unknown"
+}
+
+// uiModel is the whole UI state. The backend talks to it exclusively through
+// the message types declared below, delivered by uiBridge (see ui_handler.go).
+type uiModel struct {
+	th *theme
+
+	width, height int
+	ready         bool
+
+	side  sidebar
+	msgs  messagesPane
+	input textinput.Model
+	keys  keyMap
+
+	focus        focusArea
+	statusInfo   messages.SessionStatus
+	currentChat  messages.Chat
+	mouseEnabled bool
+
+	sm   *messages.SessionManager
+	prog *tea.Program
+}
+
+// newUIModel wires the initial model state. The program pointer is attached
+// later (see main.go) because the backend handler needs it during construction.
+func newUIModel(th *theme, sm *messages.SessionManager, keys keyMap) uiModel {
+	ti := textinput.New()
+	ti.Prompt = ""
+	ti.Placeholder = ""
+	ti.CharLimit = 0
+	ti.SetValue("")
+	ti.Focus()
+	ti.PromptStyle = th.InputTextStyle
+	ti.TextStyle = th.InputTextStyle
+	ti.Cursor.Style = th.InputTextStyle.Reverse(true)
+	ti.Cursor.TextStyle = th.InputTextStyle
+
+	return uiModel{
+		th:    th,
+		side:  newSidebar(batchSize),
+		msgs:  newMessagesPane(th),
+		input: ti,
+		keys:  keys,
+		focus: focusInput,
+		sm:    sm,
+		statusInfo: messages.SessionStatus{
+			Connected: false,
+		},
+	}
+}
+
+// Init implements tea.Model.
+func (m uiModel) Init() tea.Cmd { return textinput.Blink }
+
+// ---- backend messages ------------------------------------------------------
+
+type (
+	msgNewMessage struct{ msg messages.Message }
+	msgScreen     struct{ msgs []messages.Message }
+	msgChatList   struct{ pq []*messages.Conversation }
+	msgSession    struct{ status messages.SessionStatus }
+	msgText       struct{ text string }
+	msgError      struct{ err error }
+	msgStyled     struct {
+		text string
+		wrap bool
+	}
+	msgUpdateQR struct {
+		qr      string
+		attempt int
+		timeout int
+	}
+	msgClear     struct{}
+	msgQuit      struct{}
+	msgOpenFile  struct{ path string }
+	msgImageText struct {
+		text string
+		err  error
+	}
+)
+
+// ---- Update ----------------------------------------------------------------
+
+// Update implements tea.Model. All state transitions happen here; there is no
+// concurrent mutation of UI state anymore, unlike the QueueUpdateDraw model.
+func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.resize(msg.Width, msg.Height)
+		return m, nil
+
+	case tea.KeyMsg:
+		return m.handleKey(msg)
+
+	case tea.MouseMsg:
+		return m.handleMouse(msg)
+
+	case msgNewMessage:
+		m.msgs.addMessage(msg.msg, m.th)
+		return m, nil
+
+	case msgScreen:
+		m.msgs.setScreen(msg.msgs, m.th)
+		if len(msg.msgs) == 0 {
+			if m.currentChat.Id == "" {
+				m.msgs.addText(helpText(m.th), m.th)
+			} else {
+				m.msgs.addText(emptyChatText(m.th), m.th)
+			}
+		}
+		m.msgs.vp.GotoBottom()
+		return m, nil
+
+	case msgChatList:
+		m.side.setConversations(msg.pq)
+		return m, nil
+
+	case msgSession:
+		m.statusInfo = msg.status
+		return m, nil
+
+	case msgText:
+		m.msgs.addText(msg.text, m.th)
+		return m, nil
+
+	case msgError:
+		m.msgs.addText(errorText(m.th, msg.err), m.th)
+		return m, nil
+
+	case msgStyled:
+		m.msgs.addStyled(msg.text, msg.wrap)
+		return m, nil
+
+	case msgUpdateQR:
+		m.showQR(msg.qr, msg.attempt, msg.timeout)
+		return m, nil
+
+	case msgClear:
+		m.msgs.clear()
+		m.msgs.addText(helpText(m.th), m.th)
+		return m, nil
+
+	case msgQuit:
+		return m, tea.Quit
+
+	case msgImageText:
+		if msg.err != nil {
+			m.msgs.addText(errorText(m.th, msg.err), m.th)
+		}
+		if msg.text != "" {
+			m.msgs.addStyled(msg.text, false)
+		}
+		return m, nil
+
+	case msgOpenFile:
+		// Fire-and-forget external viewer, same as UiHandler.OpenFile did.
+		return m, openFileCmd(msg.path)
+	}
+
+	// Everything else (blink ticks, etc.) goes to the focused input.
+	if m.focus == focusInput {
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		return m, cmd
+	}
+	return m, nil
+}
+
+// resize recomputes the pane geometry. Geometry is derived from the terminal
+// size and the configured sidebar width, so only this method needs to know the
+// layout constants.
+func (m *uiModel) resize(w, h int) {
+	if w <= 0 || h <= 0 {
+		// Some terminals report no size on startup; fall back to a usable default
+		// instead of showing the placeholder forever.
+		w, h = 80, 24
+	}
+	m.width, m.height = w, h
+	m.ready = w >= 24 && h >= 10
+	if !m.ready {
+		return
+	}
+	innerW := w - 2
+	innerH := h - 2
+
+	sbW := clamp(config.Config.Ui.ChatSidebarWidth, 12, max(12, innerW-20))
+	msgW := innerW - sbW - 1
+	mainH := innerH - 4 // top bar + title rule + rule above input + input line
+
+	// The sidebar spans the message rows plus the rule and input rows, matching
+	// the old grid where the table filled both grid rows.
+	m.side.width, m.side.height = sbW, mainH+2
+	m.msgs.setSize(msgW, mainH)
+	m.input.Width = max(1, msgW-1) // bubbles pads the view one cell past Width
+}
+
+// ---- key handling ----------------------------------------------------------
+
+// handleKey dispatches keystrokes. Config bindings win over widget handling,
+// which matches the old tview app-level input capture order.
+func (m uiModel) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := k.String()
+
+	if a := m.keys.lookup(key, m.focus); a != actNone {
+		return m.applyAction(a)
+	}
+
+	switch m.focus {
+	case focusInput:
+		switch key {
+		case "enter":
+			return m.submitInput()
+		case "esc":
+			m.input.SetValue("")
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(k)
+		return m, cmd
+
+	case focusMessages:
+		switch key {
+		case "up", "k":
+			m.msgs.moveSelection(-1)
+		case "down", "j":
+			m.msgs.moveSelection(1)
+		case "pgup", "ctrl+u":
+			m.msgs.moveSelection(-10)
+		case "pgdown", "ctrl+d":
+			m.msgs.moveSelection(10)
+		case "g", "home":
+			m.msgs.selectFirst()
+		case "G", "end":
+			m.msgs.selectLast()
+		case "esc":
+			m.msgs.clearSelection()
+		case "tab":
+			m.msgs.clearSelection()
+			m.focus = focusInput
+		}
+		return m, nil
+
+	default: // sidebar panes
+		switch key {
+		case "up", "ctrl+u":
+			m.moveSidebar(-1)
+		case "down", "ctrl+d":
+			m.moveSidebar(1)
+		case "tab":
+			m.cycleFocus()
+		case "enter":
+			m.openSelectedChat()
+		}
+		return m, nil
+	}
+}
+
+// handleMouse handles clicks and wheel scrolling. Mouse reporting is only active
+// after the user presses Ctrl+p (decision D4), so terminal text selection keeps
+// working by default.
+func (m uiModel) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		m.msgs.vp.ScrollUp(3)
+		return m, nil
+	case tea.MouseButtonWheelDown:
+		m.msgs.vp.ScrollDown(3)
+		return m, nil
+	}
+	if msg.Action != tea.MouseActionPress || msg.Button != tea.MouseButtonLeft {
+		return m, nil
+	}
+	return m.handleClick(msg.X, msg.Y)
+}
+
+// handleClick maps terminal coordinates onto the panes: frame row 0, top bar 1,
+// chat-title rule 2, content rows 3..3+mainH-1, rule, input line, bottom frame.
+func (m uiModel) handleClick(x, y int) (tea.Model, tea.Cmd) {
+	mainH := m.side.height - 2
+	if y < 3 || y >= 3+mainH {
+		return m, nil
+	}
+	row := y - 3
+
+	// Sidebar: select the clicked conversation and open it.
+	if x >= 1 && x < 1+m.side.width {
+		pane, idx, ok := m.side.hitTest(row)
+		if !ok || idx < 0 || idx >= len(m.side.rows(pane)) {
+			return m, nil
+		}
+		m.focus = pane
+		m.side.setSel(pane, idx)
+		m.openSelectedChat()
+		return m, nil
+	}
+
+	// Message pane: select the clicked message.
+	if x > 1+m.side.width && x < m.width-1 {
+		line := m.msgs.vp.YOffset + row
+		if msgIdx := m.msgs.entryAtLine(line); msgIdx >= 0 {
+			m.focus = focusMessages
+			m.msgs.selectEntry(msgIdx)
+		}
+	}
+	return m, nil
+}
+
+// applyAction executes a config-bound action.
+func (m uiModel) applyAction(a action) (tea.Model, tea.Cmd) {
+	switch a {
+	case actFocusMessages:
+		m.focus = focusMessages
+		if len(m.msgs.entries) > 0 && m.msgs.selected < 0 {
+			m.msgs.selectLast()
+		}
+
+	case actFocusInput:
+		m.msgs.clearSelection()
+		m.focus = focusInput
+
+	case actFocusChats:
+		m.msgs.clearSelection()
+		m.focus = focusChats
+
+	case actSwitchPanels:
+		m.cycleFocus()
+
+	case actCommandRead:
+		return m, m.sendCommand("read", nil)
+
+	case actCommandBacklog:
+		return m, m.sendCommand("backlog", nil)
+
+	case actCommandConnect:
+		return m, m.sendCommand("login", nil)
+
+	case actCommandHelp:
+		m.msgs.addText(helpText(m.th), m.th)
+
+	case actCommandQuit:
+		// Send the disconnect before quitting so the backend can shut down cleanly.
+		sm := m.sm
+		return m, func() tea.Msg {
+			sm.CommandChannel <- messages.Command{Name: "disconnect"}
+			return tea.Quit()
+		}
+
+	case actToggleMouse:
+		m.mouseEnabled = !m.mouseEnabled
+		if m.mouseEnabled {
+			m.msgs.addText("Mouse interaction ENABLED (App selection enabled)", m.th)
+			return m, enableMouseCmd()
+		}
+		m.msgs.addText("Mouse interaction DISABLED (Native selection enabled)", m.th)
+		return m, disableMouseCmd()
+
+	case actCopyUser:
+		m.copyUserID()
+
+	case actPasteUser:
+		text, err := clipboard.ReadAll()
+		if err != nil {
+			m.msgs.addText("failed to paste: "+err.Error(), m.th)
+			return m, nil
+		}
+		m.input.SetValue(m.input.Value() + " " + text)
+		m.input.CursorEnd()
+
+	case actMessageDownload, actMessageOpen, actMessageShow, actMessageUrl, actMessageInfo, actMessageRevoke:
+		if msg := m.msgs.selectedMessage(); msg != nil {
+			name := messageActionName(a)
+			m.msgs.clearSelection()
+			m.focus = focusInput
+			return m, m.sendCommand(name, []string{msg.Id})
+		}
+	}
+	return m, nil
+}
+
+// messageActionName maps a message action to its backend command name, which is
+// the same mapping the old handleMessageCommand closure held.
+func messageActionName(a action) string {
+	switch a {
+	case actMessageDownload:
+		return "download"
+	case actMessageOpen:
+		return "open"
+	case actMessageShow:
+		return "show"
+	case actMessageUrl:
+		return "url"
+	case actMessageInfo:
+		return "info"
+	case actMessageRevoke:
+		return "revoke"
+	}
+	return ""
+}
+
+// copyUserID ports handleCopyUser: the selected message's contact wins, then the
+// current chat.
+func (m *uiModel) copyUserID() {
+	if msg := m.msgs.selectedMessage(); msg != nil {
+		if err := clipboard.WriteAll(msg.ContactId); err != nil {
+			m.msgs.addText("failed to copy: "+err.Error(), m.th)
+		} else {
+			name := msg.ContactName
+			if name == "" {
+				name = msg.ContactShort
+			}
+			m.msgs.addText("copied id of "+name+" to clipboard", m.th)
+		}
+		m.msgs.clearSelection()
+		return
+	}
+	if m.currentChat.Id != "" {
+		if err := clipboard.WriteAll(m.currentChat.Id); err != nil {
+			m.msgs.addText("failed to copy: "+err.Error(), m.th)
+		} else {
+			m.msgs.addText("copied id of "+m.currentChat.Name+" to clipboard", m.th)
+		}
+	}
+}
+
+// submitInput ports EnterCommand.
+func (m uiModel) submitInput() (tea.Model, tea.Cmd) {
+	value := m.input.Value()
+	if value == "" {
+		return m, nil
+	}
+	m.input.SetValue("")
+
+	prefix := config.Config.General.CmdPrefix
+	if strings.HasPrefix(value, prefix) {
+		fields := strings.Fields(value)
+		if len(fields) == 0 {
+			return m, nil
+		}
+		name := strings.TrimPrefix(fields[0], prefix)
+		var params []string
+		if len(fields) > 1 {
+			params = fields[1:]
+		}
+		return m, m.sendCommand(name, params)
+	}
+
+	if m.currentChat.Id == "" {
+		m.msgs.addText("no receiver", m.th)
+		return m, nil
+	}
+	return m, m.sendCommand("send", []string{m.currentChat.Id, value})
+}
+
+// ---- sidebar navigation ----------------------------------------------------
+
+// cycleFocus implements SwitchPanels / Tab: status → chats → groups → messages
+// → input → status (skipping the status pane when it is empty).
+func (m *uiModel) cycleFocus() {
+	m.msgs.clearSelection()
+	switch m.focus {
+	case focusInput, focusMessages:
+		m.focus = m.firstSidebarPane()
+	case focusStatus:
+		m.focus = focusChats
+	case focusChats:
+		m.focus = focusGroups
+	case focusGroups:
+		m.focus = focusMessages
+	}
+}
+
+// firstSidebarPane returns the status pane when it has rows, otherwise chats.
+func (m *uiModel) firstSidebarPane() focusArea {
+	if len(m.side.status) > 0 {
+		return focusStatus
+	}
+	return focusChats
+}
+
+// moveSidebar moves within the focused pane, jumping to the neighbouring pane at
+// the edges — the behaviour the four handle*PanelUp/Down functions implemented.
+func (m *uiModel) moveSidebar(delta int) {
+	pane := m.focus
+	rows := m.side.rows(pane)
+	if len(rows) == 0 {
+		m.jumpSidebar(delta)
+		return
+	}
+	sel := m.side.selOf(pane)
+
+	if delta < 0 && sel == 0 {
+		m.jumpSidebar(-1)
+		return
+	}
+	if delta > 0 && sel == len(rows)-1 {
+		if pane == focusChats && m.side.limit < len(m.side.all) {
+			// Grow the infinite-scroll window before leaving the pane.
+			m.side.moveCursor(pane, 1)
+			m.openSelectedChat()
+			return
+		}
+		m.jumpSidebar(1)
+		return
+	}
+
+	if m.side.moveCursor(pane, delta) {
+		m.openSelectedChat()
+	}
+}
+
+// jumpSidebar moves focus to the next/previous sidebar pane at a boundary.
+func (m *uiModel) jumpSidebar(delta int) {
+	switch m.focus {
+	case focusStatus:
+		if delta > 0 {
+			m.focus = focusChats
+			m.side.selectFirst(focusChats)
+		}
+	case focusChats:
+		if delta > 0 {
+			m.focus = focusGroups
+			m.side.selectFirst(focusGroups)
+		} else {
+			if len(m.side.status) > 0 {
+				m.focus = focusStatus
+				m.side.selectFirst(focusStatus)
+			}
+		}
+	case focusGroups:
+		if delta < 0 {
+			m.focus = focusChats
+			m.side.selectLast(focusChats)
+		}
+	}
+	m.openSelectedChat()
+}
+
+// openSelectedChat loads the conversation under the cursor (port of
+// SetDisplayedChat plus the openFrom* callbacks).
+func (m *uiModel) openSelectedChat() {
+	conv := m.side.selectedConversation(m.focus)
+	if conv == nil {
+		return
+	}
+	chat := messages.Chat{
+		Id:          conv.JID,
+		Name:        conv.Name,
+		Unread:      int(conv.Unread),
+		LastMessage: conv.LastMsgTime,
+		IsGroup:     strings.HasSuffix(conv.JID, messages.GROUPSUFFIX),
+	}
+	if conv.Name == "" {
+		chat.Name = conv.JID
+	}
+	m.currentChat = chat
+	m.msgs.clear()
+	m.msgs.setTitle(chat.Name)
+	// The reply arrives asynchronously as msgScreen.
+	m.queueCommand("select", []string{chat.Id})
+}
+
+// queueCommand hands a command to the backend without ever blocking the UI
+// event loop on a full CommandChannel.
+func (m *uiModel) queueCommand(name string, params []string) {
+	cmd := messages.Command{Name: name, Params: params}
+	select {
+	case m.sm.CommandChannel <- cmd:
+	default:
+		sm := m.sm
+		go func() { sm.CommandChannel <- cmd }()
+	}
+}
+
+// ---- QR --------------------------------------------------------------------
+
+// showQR rebuilds the login screen: help text, header, and the QR block. It is a
+// port of UiHandler.UpdateQR.
+func (m *uiModel) showQR(qr string, attempt, timeout int) {
+	m.msgs.clear()
+	m.msgs.addText(helpText(m.th), m.th)
+
+	var header string
+	if timeout > 0 {
+		header = fmt.Sprintf("\n\n=== QR Code Generated (Attempt %d) - Auto-refreshing in %ds ===\n\nScan this with WhatsApp:\n\n", attempt, timeout)
+	} else {
+		header = fmt.Sprintf("\n\n=== QR Code Generated (Attempt %d) - Awaiting new QR code from WhatsApp Server ===\n\nScan this with WhatsApp:\n\n", attempt)
+	}
+	m.msgs.addStyled(header, true)
+	m.msgs.addStyled(qr, false)
+	m.msgs.vp.GotoBottom()
+	m.focus = focusInput
+	m.input.SetValue("")
+}
+
+// ---- commands back to the backend -----------------------------------------
+
+// sendCommand queues a backend command. The send happens inside a tea.Cmd so a
+// full CommandChannel can never block the event loop.
+func (m uiModel) sendCommand(name string, params []string) tea.Cmd {
+	sm := m.sm
+	return func() tea.Msg {
+		sm.CommandChannel <- messages.Command{Name: name, Params: params}
+		return nil
+	}
+}
+
+// ---- View ------------------------------------------------------------------
+
+// View composes the whole screen: outer frame, top bar, chat title rule,
+// sidebar | message pane, input line.
+func (m uiModel) View() string {
+	if !m.ready {
+		return "WhatsCLI — resizing… (terminal too small)"
+	}
+	th := m.th
+	innerW := m.width - 2
+	width := m.width
+
+	sbW := m.side.width
+	msgW := innerW - sbW - 1
+	mainH := m.side.height - 2
+
+	lines := make([]string, 0, m.height)
+	lines = append(lines, frameTop(width, th))
+	lines = append(lines, frameSide(fit(statusBarText(m.statusInfo, innerW, th), innerW), th))
+	lines = append(lines, ruleTitledRight(width, m.msgs.title, th))
+
+	sideLines := m.side.render(m.focus, th)
+	sideLine := func(i int) string {
+		if i < len(sideLines) {
+			return fit(sideLines[i], sbW)
+		}
+		return strings.Repeat(" ", sbW)
+	}
+	msgLines := strings.Split(m.msgs.view(), "\n")
+	for i := 0; i < mainH; i++ {
+		var right string
+		if i < len(msgLines) {
+			right = msgLines[i]
+		}
+		lines = append(lines, th.Border.Render("│")+
+			sideLine(i)+
+			vRuleFocused(m.focus == focusMessages, th)+
+			fit(right, msgW)+
+			th.Border.Render("│"))
+	}
+
+	// The rule and the input line stop at the sidebar, so the chat list keeps
+	// running to the bottom of the screen.
+	lines = append(lines, th.Border.Render("│")+sideLine(mainH)+
+		th.Border.Render("├"+strings.Repeat("─", msgW)+"┤"))
+	lines = append(lines, th.Border.Render("│")+sideLine(mainH+1)+
+		th.Border.Render("│")+m.renderInput(msgW)+th.Border.Render("│"))
+	lines = append(lines, frameBottom(width, th))
+	return strings.Join(lines, "\n")
+}
+
+// renderInput renders the input line with the configured input background
+// filling the full width, like tview's InputField did.
+func (m uiModel) renderInput(width int) string {
+	view := ansi.Truncate(m.input.View(), width, "")
+	if w := lipgloss.Width(view); w < width {
+		view += strings.Repeat(" ", width-w)
+	}
+	return m.th.InputTextStyle.Render(view)
+}
+
+// ---- terminal-mode commands -------------------------------------------------
+
+// enableMouseCmd turns on mouse reporting at runtime. Mouse is off by default
+// (decision D4) so terminal text selection keeps working.
+func enableMouseCmd() tea.Cmd {
+	return func() tea.Msg { return tea.EnableMouseCellMotion() }
+}
+
+// disableMouseCmd turns mouse reporting back off.
+func disableMouseCmd() tea.Cmd {
+	return func() tea.Msg { return tea.DisableMouse() }
+}
+
+// openFileCmd opens a file with the platform handler (formerly UiHandler.OpenFile).
+func openFileCmd(path string) tea.Cmd {
+	return func() tea.Msg {
+		_ = open.Run(path)
+		return nil
+	}
+}
