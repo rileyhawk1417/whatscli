@@ -186,6 +186,35 @@ preset therefore assumes a light terminal, which is also why the preset is
 described rather than auto-detected — `theme` stays explicit so a user on a
 light terminal never gets dark-on-dark after an upgrade.
 
+## D10. Painted surfaces
+
+The migration originally left backgrounds to the terminal, which made the
+`light` preset useless on a dark terminal and meant `background`/`input_background`
+only showed through behind the input field. Now that every cell of the frame is
+produced by our own compositor, the paint pass (`ui_background.go`, applied at
+the end of `View`) covers the whole surface instead:
+
+1. Every frame line is re-armed with the `background` SGR sequence: the
+   sequence prefixes the line, is re-inserted after every `\x1b[0m`, and short
+   lines are padded with painted spaces. Without this, *any* styled span would
+   drop back to the terminal background after its own reset — lipgloss emits a
+   reset per segment and ANSI pass-through blocks (QR, images) carry their own
+   spans, so per-line wrapping in a `Background` style cannot work.
+2. The input row is painted with `input_background` instead, preserving the
+   field look from the tview version.
+3. The pass runs after the theme-picker overlay also covers the picker rows.
+4. The sequences are built through lipgloss (`backgroundSequence`), so the
+   active color profile picks the encoding (truecolor, 256 or basic ANSI), and
+   a profile without colors yields "" — the pass then degrades to the exact
+   pre-migration behaviour instead of emitting garbage sequences.
+5. `retint` still leaves ANSI pass-through blocks alone: the paint pass never
+   rewrites their *content*, it only re-arms the surface between their own
+   color spans, which is what makes QR codes render correctly on a `light`
+   theme (black modules stay black, the quiet zone is painted from the theme).
+
+Consequence: `background` is now what the user sees, full stop. The README no
+longer tells people to keep the terminal's background in sync.
+
 ## Version pins (task 01)
 
 | Module | Version | Why |

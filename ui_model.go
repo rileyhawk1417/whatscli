@@ -843,9 +843,23 @@ func (m uiModel) View() string {
 	lines = append(lines, frameBottom(width, th))
 	frame := strings.Join(lines, "\n")
 	if m.picker != nil {
-		return overlayCenter(frame, m.picker.render(th), width, m.height)
+		frame = overlayCenter(frame, m.picker.render(th), width, m.height)
 	}
-	return frame
+
+	// Paint the theme background across the whole surface so a palette carries
+	// even on terminals whose own colors do not match (a light theme on a dark
+	// terminal, say). The input row sits on input_background instead of the
+	// main surface; the pass runs after the overlay so picker rows are covered
+	// too, and overlayCenter preserves the row count.
+	lines = strings.Split(frame, "\n")
+	for i, line := range lines {
+		if i == len(lines)-2 { // the input row, directly above the bottom rule
+			lines[i] = paintLine(line, width, th.inputSeq)
+			continue
+		}
+		lines[i] = paintLine(line, width, th.backgroundSeq)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // renderInput renders the input line with the configured input background

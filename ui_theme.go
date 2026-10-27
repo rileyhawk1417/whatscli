@@ -50,6 +50,14 @@ type theme struct {
 	HelpDim        lipgloss.Style
 	Error          lipgloss.Style
 	InputTextStyle lipgloss.Style
+
+	// Paint sequences for the two surfaces of the UI. backgroundSeq is the SGR
+	// prefix that lays the palette's background color down, so every pane can
+	// be painted even when the terminal's own background does not match. Empty
+	// when the color profile cannot represent the value (no colors at all, or
+	// a `default`-style value).
+	backgroundSeq string
+	inputSeq      string
 }
 
 // statusColor is the fixed accent used for the broadcast/status pane, matching
@@ -166,7 +174,23 @@ func loadThemeWith(c config.Colors, overrides map[string]bool) (*theme, error) {
 	t.InputTextStyle = lipgloss.NewStyle().
 		Foreground(t.InputText).
 		Background(t.InputBackground)
+
+	t.backgroundSeq = backgroundSequence(t.Background)
+	t.inputSeq = backgroundSequence(t.InputBackground)
 	return t, nil
+}
+
+// backgroundSequence returns the SGR prefix that paints c as a background
+// color, "" when the active color profile cannot represent it. Built through
+// lipgloss so the profile picks the encoding (truecolor, 256-color or the 16
+// basic ANSI colors); a plain terminal yields "" and nothing gets painted.
+func backgroundSequence(c lipgloss.Color) string {
+	rendered := lipgloss.NewStyle().Background(c).Render(" ")
+	const suffix = " \x1b[0m"
+	if !strings.HasSuffix(rendered, suffix) {
+		return ""
+	}
+	return strings.TrimSuffix(rendered, suffix)
 }
 
 // mergePalette layers the user's own color keys over a preset. AutoContrast is

@@ -290,8 +290,10 @@ Run `/theme` in-app to browse them: the highlight previews each palette on the
 whole UI, `Enter` applies it for the session and `Esc` puts the previous one
 back. Nothing is written to disk — copy the name into `theme = …` to keep it.
 
-Presets assume your terminal background matches (`light` wants a light
-terminal); whatscli does not paint its own background.
+Themes paint the terminal: the whole surface is covered with the `background`
+value and the input row with `input_background`, so even a dark-on-white theme
+is legible on a dark terminal. On terminals without color support nothing is
+painted and the terminal's own background shows through.
 
 Older configs use tcell's basic names, which are the *dark* tones: `blue` is
 `#0000ff` (2.4:1 on black) and `purple` is `#800080` (2.2:1), both well below the

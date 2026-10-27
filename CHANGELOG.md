@@ -36,7 +36,10 @@ All notable changes to the WhatsApp CLI application will be documented in this f
   (default), `light`, `classic` or `mono`, and individual colour keys still
   override the preset. `/theme` opens a selector that previews each palette on
   the whole UI, `Enter` applies it for the session and `Esc` restores the
-  previous one.
+  previous one. Themes now also paint the background (`background` covers the
+  whole surface, `input_background` the input row) instead of letting the
+  terminal's own colours show through, so `theme = light` is legible even on a
+  dark terminal.
 - `auto_contrast` in the `[colors]` section (on by default): foreground colors
   that would fall below the 4.5:1 WCAG contrast ratio against `background` are
   lightened along their own hue instead of rendering nearly invisible. Legacy
