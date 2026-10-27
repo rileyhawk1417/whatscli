@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/normen/whatscli/config"
@@ -157,6 +158,15 @@ func (sm *SessionManager) loginWithQRCode(client *whatsmeow.Client) error {
 		return fmt.Errorf("error connecting to WhatsApp: %v", err)
 	}
 
+	return sm.handleQRChannel(qrChan)
+}
+
+// handleQRChannel drives the pairing event loop. It is split out of
+// loginWithQRCode so the terminating events can be exercised without a
+// network connection: whatsmeow signals failures such as err-client-outdated
+// as events and then closes the channel, and an unhandled closed channel used
+// to spin this select loop forever.
+func (sm *SessionManager) handleQRChannel(qrChan <-chan whatsmeow.QRChannelItem) error {
 	qrCount := 0
 	currentQR := ""
 	qrTimeout := 0
@@ -165,7 +175,15 @@ func (sm *SessionManager) loginWithQRCode(client *whatsmeow.Client) error {
 
 	for {
 		select {
-		case evt := <-qrChan:
+		case evt, ok := <-qrChan:
+			if !ok {
+				// whatsmeow closes the channel after a terminal event; without
+				// this the select would spin on a closed channel forever.
+				err := errors.New("QR login failed: the connection closed before pairing completed (re-run with --debug for details)")
+				sm.StatusChannel <- StatusMsg{false, err}
+				return err
+			}
+
 			if evt.Event == "code" {
 				qrCount++
 				if qrCount > 6 {
@@ -195,7 +213,17 @@ func (sm *SessionManager) loginWithQRCode(client *whatsmeow.Client) error {
 			} else if evt.Event == "timeout" {
 				sm.uiHandler.PrintText("QR code timeout. Waiting for new code...")
 			} else if evt.Event == "error" {
+				if evt.Error != nil {
+					sm.StatusChannel <- StatusMsg{false, evt.Error}
+					return evt.Error
+				}
 				return fmt.Errorf("QR code event error")
+			} else if strings.HasPrefix(evt.Event, "err-") {
+				// Terminal pairing failures such as err-client-outdated:
+				// whatsmeow reports them as an event, not as an error.
+				err := fmt.Errorf("QR pairing failed: %s", strings.TrimPrefix(evt.Event, "err-"))
+				sm.StatusChannel <- StatusMsg{false, err}
+				return err
 			}
 		case <-ticker.C:
 			if qrTimeout > 0 && currentQR != "" {

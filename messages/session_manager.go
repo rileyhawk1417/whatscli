@@ -121,11 +121,11 @@ func (sm *SessionManager) runManager() error {
 		case statusMsg := <-sm.StatusChannel:
 			prevStatus := sm.statusInfo.Connected
 			if statusMsg.err != nil {
-			} else {
-				sm.statusInfo.Connected = statusMsg.connected
-			}
-
-			if client := sm.getClient(); client != nil {
+				// A reported failure wins over the socket state: whatsmeow can
+				// still look connected for a moment after rejecting the handshake,
+				// which used to flip the bar to "online" on a failed pairing.
+				sm.statusInfo.Connected = false
+			} else if client := sm.getClient(); client != nil {
 				sm.statusInfo.Connected = client.IsConnected()
 			} else {
 				sm.statusInfo.Connected = false
