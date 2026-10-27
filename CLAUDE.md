@@ -6,7 +6,7 @@
 ## Project
 
 **WhatsCLI** — a terminal-based WhatsApp client written in Go.  
-Uses [whatsmeow](https://github.com/tulir/whatsmeow) (multi-device protocol) and [tview](https://github.com/rivo/tview) (TUI framework).
+Uses [whatsmeow](https://github.com/tulir/whatsmeow) (multi-device protocol) and the [Bubbletea](https://github.com/charmbracelet/bubbletea) stack (TUI framework).
 
 ## Build & Test Commands
 
@@ -27,13 +27,13 @@ Two packages, cleanly separated:
 
 | Package | Responsibility | Key Files |
 |---------|---------------|-----------|
-| `main` (root) | TUI layer (tview) | `main.go`, `app_context.go`, `ui_layout.go`, `ui_handler.go`, `ui_keybindings.go`, `ui_render.go`, `ui_helpers.go` |
+| `main` (root) | TUI layer (bubbletea/lipgloss) | `main.go`, `ui_model.go`, `ui_keys.go`, `ui_theme.go`, `ui_layout.go`, `ui_sidebar.go`, `ui_messages.go`, `ui_render.go`, `ui_helpers.go`, `ui_handler.go`, `app_context.go` |
 | `messages/` | Business logic, WhatsApp connection, storage | `session_manager.go`, `connection.go`, `event_handler.go`, `history_sync.go`, `chat_state.go`, `storage.go`, `cmd_*.go` |
 | `config/` | INI config with XDG paths | `settings.go` |
 | `qrcode/` | ANSI QR code rendering | `qrcode.go` |
 
 **Data flow:** UI → `CommandChannel` → `SessionManager.runManager()` event loop.  
-Backend → `UiMessageHandler` interface → TUI updates.
+Backend → `UiMessageHandler` interface → `uiBridge.send()` → `tea.Msg` → model `Update`.
 
 ## Critical Concurrency Rules
 
@@ -55,7 +55,7 @@ func(sm *SessionManager, client *whatsmeow.Client, cmdName string, params []stri
 **To add a new command:**
 1. Create handler function in appropriate `cmd_*.go` file
 2. Register in `commandRegistry` map in `cmd_registry.go`'s `init()`
-3. Update help text in `ui_helpers.go` → `PrintHelp()`
+3. Update help text in `ui_helpers.go` → `helpText()`
 
 ## Storage
 

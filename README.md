@@ -17,7 +17,7 @@
 
 <p align="center">
   Send and receive WhatsApp messages from your terminal — no browser required.<br>
-  Connects directly via the WhatsApp Web multi-device API using <a href="https://github.com/tulir/whatsmeow">whatsmeow</a> and renders a responsive TUI with <a href="https://github.com/rivo/tview">tview</a>.
+  Connects directly via the WhatsApp Web multi-device API using <a href="https://github.com/tulir/whatsmeow">whatsmeow</a> and renders a responsive TUI on the <a href="https://github.com/charmbracelet/bubbletea">Bubbletea</a> stack.
 </p>
 
 ---
@@ -140,13 +140,13 @@ WhatsCLI follows a clean separation between presentation and business logic:
 |-----------|-----------|
 | **Language** | Go 1.24 |
 | **WhatsApp Protocol** | [whatsmeow](https://github.com/tulir/whatsmeow) (multi-device Web API) |
-| **Terminal UI** | [tview](https://github.com/rivo/tview) + [tcell](https://github.com/gdamore/tcell) |
+| **Terminal UI** | [Bubbletea](https://github.com/charmbracelet/bubbletea) + [Bubbles](https://github.com/charmbracelet/bubbles) + [Lip Gloss](https://github.com/charmbracelet/lipgloss) |
 | **Database** | SQLite 3 via [go-sqlite3](https://github.com/mattn/go-sqlite3) (CGO) |
 | **QR Code** | [go-qrcode](https://github.com/skip2/go-qrcode) with custom ANSI renderer |
 | **Configuration** | INI format via [go-ini](https://github.com/go-ini/ini) with [XDG](https://github.com/adrg/xdg) paths |
 | **Notifications** | [beeep](https://github.com/gen2brain/beeep) (cross-platform desktop notifications) |
 | **Clipboard** | [clipboard](https://github.com/atotto/clipboard) |
-| **Key Bindings** | [cbind](https://code.rocketnine.space/tslocum/cbind) |
+| **Key Bindings** | Config-driven keymap parsed into Bubbletea key strings |
 | **CI/CD** | GitHub Actions (Go 1.22 + 1.24 matrix) |
 
 ---
@@ -264,7 +264,9 @@ The file is auto-created on first run with sensible defaults. Run `/help` inside
 | `positive` | `green` | Positive status indicators |
 | `negative` | `red` | Error/offline indicators |
 
-Use `/colorlist` in-app to see all available color names.
+Colors accept `#rrggbb` hex values, ANSI indices (`0`–`255`), or any X11/CSS
+color name tcell used to support (`black`, `dimgray`, `purple`, …). Use
+`/colorlist` in-app to see all available color names.
 
 </details>
 
@@ -318,7 +320,7 @@ After the initial scan, WhatsCLI reconnects automatically on subsequent launches
 - **`Tab`** — Switch between chat list, status panel, and input field
 - **`Ctrl+w`** — Enter message selection mode (select individual messages)
 - **`Up`/`Down`** — Scroll messages or navigate the chat list
-- **`Ctrl+p`** — Toggle mouse support
+- **`Ctrl+p`** — Toggle mouse support (off by default so native terminal selection works)
 
 ### Sending Media
 
@@ -410,7 +412,7 @@ All key bindings are configurable in `whatscli.config` under the `[keymap]` sect
 | `Ctrl+r` | Global | Reconnect |
 | `Ctrl+q` | Global | Quit |
 | `Ctrl+?` | Global | Show help |
-| `Ctrl+p` | Global | Toggle mouse |
+| `Ctrl+p` | Global | Toggle mouse (native selection is the default) |
 | `Ctrl+c` | Global | Copy user ID |
 | `Ctrl+v` | Global | Paste user ID |
 | `d` | Message selected | Download attachment |
@@ -617,11 +619,11 @@ This project is licensed under the [MIT License](LICENSE).
 ## Acknowledgements
 
 - **[whatsmeow](https://github.com/tulir/whatsmeow)** — The Go library powering the WhatsApp multi-device protocol implementation
-- **[tview](https://github.com/rivo/tview)** — Rich interactive TUI framework for Go
-- **[tcell](https://github.com/gdamore/tcell)** — Low-level terminal cell library
+- **[Bubbletea](https://github.com/charmbracelet/bubbletea)** — The Elm-architecture TUI framework driving the interface
+- **[Bubbles](https://github.com/charmbracelet/bubbles)** — Viewport and text input components
+- **[Lip Gloss](https://github.com/charmbracelet/lipgloss)** — Styling, colour handling, and layout helpers
 - **[go-sqlite3](https://github.com/mattn/go-sqlite3)** — SQLite3 driver for Go's `database/sql`
 - **[beeep](https://github.com/gen2brain/beeep)** — Cross-platform desktop notification library
 - **[go-qrcode](https://github.com/skip2/go-qrcode)** — QR code generator used for terminal-rendered login codes
-- **[cbind](https://code.rocketnine.space/tslocum/cbind)** — Key binding configuration library
 
 

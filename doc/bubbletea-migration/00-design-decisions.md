@@ -133,3 +133,68 @@ those three shapes and errors loudly on anything else. Implemented in task 06.
 Removed at the end of the migration (task 08): `rivo/tview`,
 `gdamore/tcell/v2`, `code.rocketnine.space/tslocum/cbind`.
 `atotto/clipboard`, `skratchdot/open-golang`, and `mattn/go-colorable` stay.
+## Implementation log (tasks 02–08)
+
+Decisions that were only implicit in the plan and how they were resolved in
+code. Anything a reviewer would otherwise have to reverse-engineer belongs here.
+
+### Structure
+
+| File | Role |
+|---|---|
+| `ui_model.go` | `uiModel` (the `tea.Model`), `focusArea`, all UI message types, `Update`, `View`, command/quit wiring |
+| `ui_keys.go` | `[keymap]` INI specs → bubbletea key strings, `action` enum, binding lookup |
+| `ui_theme.go` + `ui_colors_gen.go` | `[colors]` INI values → lipgloss styles; generated X11 color-name table |
+| `ui_layout.go` | pure string layout primitives (`fit`, rules, frame, `wrapText`) |
+| `ui_render.go` | pure renderers (`formatRelativeTime`, chat rows, messages) |
+| `ui_sidebar.go` | three panes with independent cursors, sort/split/infinite scroll |
+| `ui_messages.go` | block-based message pane on `bubbles/viewport`, explicit selection |
+| `ui_handler.go` | `UiMessageHandler` → `tea.Msg` translation only |
+| `ui_helpers.go` | help screen, status bar, error/empty text (all return strings) |
+
+`ui_keybindings.go` is gone: its `LoadShortcuts`/`EnterCommand`/
+`ResetMsgSelection`/`GetOffsetMsgId` logic now lives in `ui_keys.go` +
+`ui_model.go`, without cbind or regions.
+
+### Behaviour notes
+
+- **Focus model.** `focusArea` (status → chats → groups → messages → input)
+  replaces `App.GetFocus()`. Config bindings are checked *before* widget
+  handling, reproducing tview's app-level capture order (so `Ctrl+c`,
+  `Ctrl+v`, `Ctrl+w` behave as before even while typing).
+- **Message selection.** `messagesPane.selected` is an index into
+  `entries` (D2). Falling off either end of the history matches the old
+  `GetOffsetMsgId` fallback: moving *down* from "nothing selected" selects the
+  oldest message, moving *up* selects the newest. Focusing the pane via the
+  `focus_messages` binding selects the newest, like `handleFocusMessage`.
+- **Top bar.** The old status update *replaced* the whole top bar text. Now the
+  product name and the help hint stay on the left and the session status is
+  right-aligned, so both remain visible. Content is otherwise identical.
+- **Mouse.** Off at startup (D4); `Ctrl+p` toggles at runtime via
+  `tea.EnableMouseCellMotion` / `tea.DisableMouse`, printing the same notice
+  strings as `handleToggleMouse`. Clicking a sidebar row selects and opens that
+  chat; clicking a message selects it; the wheel scrolls the message pane.
+- **Layout.** Single outer frame with internal rules instead of a tview grid.
+  The sidebar spans the full height (chat list keeps running past the input
+  row), the rule above the input line and the input line itself stop at the
+  sidebar separator, matching the old grid where the tables row-spanned.
+- **Input line.** `bubbles/textinput` is focused at startup, Enter submits,
+  Esc clears, and the row is painted with `[colors] input_background`. The
+  widget's view is one cell wider than `Width`, so `Width = msgW-1` plus a
+  defensive `ansi.Truncate`.
+- **Re-flow on resize.** `messagesPane` stores un-wrapped *blocks* and derives
+  display lines in `refresh()`, so a resize re-wraps history instead of leaving
+  stale line breaks. ANSI passthrough blocks (QR, image output) are never
+  wrapped (D6) and are covered by a unit test.
+- **Errors.** Invalid `[keymap]` entries no longer print after the UI starts;
+  they are collected by `buildKeyMap` and shown as the first line of the
+  message pane: `invalid key binding: <field>: <reason>`.
+- **Backend sends.** `sendCommand` returns a `tea.Cmd`, so a full
+  `CommandChannel` can never stall the event loop; `queueCommand` (chat
+  selection) does a non-blocking send with a goroutine fallback.
+- **Colors.** `ui_colors_gen.go` was generated from `tcell.ColorNames` *before*
+  task 08 removed the dependency; it is now a standalone 300-entry table. Any
+  config value tcell accepted (hex, ANSI index, X11 name) still loads, and
+  `colors.<field>: unknown color "…"` is reported at startup.
+- **Notifications.** Untouched — `beeep` still fires from the backend, so
+  desktop notifications keep working without the TUI being involved.
