@@ -2,7 +2,28 @@
 
 All notable changes to the WhatsApp CLI application will be documented in this file.
 
-## [Unreleased] - 2023-03-17
+## [Unreleased]
+
+### Changed
+- The TUI now runs on [Bubbletea](https://github.com/charmbracelet/bubbletea),
+  [Bubbles](https://github.com/charmbracelet/bubbles) and
+  [Lip Gloss](https://github.com/charmbracelet/lipgloss); `tview`, `tcell` and
+  `cbind` are gone.
+- Existing INI configuration keeps working unchanged: `[keymap]` values and all
+  `[colors]` keys (hex, ANSI index or X11/CSS name) load as before.
+- Mouse reporting is now off at startup so the terminal's native text selection
+  works; `Ctrl+p` still toggles it.
+- The status bar keeps the product name and help hint on the left and shows the
+  session status on the right.
+- Invalid `[keymap]` entries are reported as a message instead of being ignored.
+
+### Added
+- `doc/bubbletea-migration/` — the migration plan, design decisions and a
+  terminal smoke-test harness (`tools/pty_qa.py`).
+- Headless tests for the UI model: frame geometry, keymap parsing, input
+  routing, message selection, sidebar sorting and ANSI pass-through.
+
+## [2023-03-17]
 
 ### Changed
 - Migrated from deprecated `go-whatsapp` library to the newer `whatsmeow` library
