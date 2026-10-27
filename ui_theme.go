@@ -28,6 +28,13 @@ type theme struct {
 	UnreadCount     lipgloss.Color
 	Positive        lipgloss.Color
 	Negative        lipgloss.Color
+	// Dim is derived, not configured: the text color pulled towards the
+	// background for timestamps and secondary hints.
+	Dim lipgloss.Color
+
+	// Adjusted lists the palette entries whose lightness had to be raised to
+	// stay readable (empty when the configured colors already passed).
+	Adjusted []string
 
 	// Derived styles.
 	TopBar         lipgloss.Style
@@ -50,15 +57,19 @@ type theme struct {
 // the previous tcell.ColorYellow usage in RenderChatTable.
 const statusColor = lipgloss.Color("#ffff00")
 
-// timestampColor replaces tcell.ColorDimGray.
-const timestampColor = lipgloss.Color("#696969")
+// borderContrast is the WCAG AA ratio for graphical objects: borders are a
+// frame, not body text, so they may stay quieter than the palette.
+const borderContrast = 3.0
 
 // resolveColor accepts the same values the old tcell-based config accepted:
 // hex (#rrggbb), ANSI numbers ("4", "213"), or any X11-style name tcell knew
 // ("red", "dimgray", "cornflowerblue"). Names are resolved through the
 // generated table so existing configs keep working unchanged.
 func resolveColor(value string) (lipgloss.Color, error) {
-	v := strings.TrimSpace(strings.ToLower(value))
+	// go-ini cannot store a bare "#rrggbb" (it starts an inline comment), so hex
+	// values are written quoted; strip the quoting here for convenience.
+	v := strings.Trim(strings.TrimSpace(value), "`\"'")
+	v = strings.ToLower(strings.TrimSpace(v))
 	if v == "" {
 		return "", fmt.Errorf("empty color value")
 	}
@@ -82,7 +93,8 @@ func resolveColor(value string) (lipgloss.Color, error) {
 
 // loadTheme resolves the whole [colors] section, failing on the first invalid
 // entry so misconfiguration is reported at startup instead of silently
-// rendering black text.
+// rendering black text. Foreground colors are lifted until they are legible on
+// the configured background (see ui_contrast.go) unless auto_contrast is off.
 func loadTheme(c config.Colors) (*theme, error) {
 	type pair struct {
 		name  string
@@ -114,6 +126,18 @@ func loadTheme(c config.Colors) (*theme, error) {
 		*p.dst = col
 	}
 
+	background, ok := parseColor(string(t.Background))
+	if !ok {
+		background = rgb{0, 0, 0} // unknown but valid value (e.g. "default")
+	}
+
+	if c.AutoContrast {
+		t.applyContrast(background)
+	}
+
+	t.TimeDim = lipgloss.NewStyle().Foreground(t.Dim)
+	t.HelpDim = lipgloss.NewStyle().Foreground(t.Dim)
+
 	t.TopBar = lipgloss.NewStyle().
 		Foreground(t.Text).
 		Background(t.Background)
@@ -121,18 +145,76 @@ func loadTheme(c config.Colors) (*theme, error) {
 	t.BorderActive = lipgloss.NewStyle().Foreground(t.Borders).Bold(true)
 	t.SectionTitle = lipgloss.NewStyle().Foreground(t.ListHeader)
 	t.SectionTitleHi = lipgloss.NewStyle().Foreground(t.ListHeader).Bold(true).Reverse(true)
-	t.TimeDim = lipgloss.NewStyle().Foreground(timestampColor)
 	t.Selected = lipgloss.NewStyle().Reverse(true)
 	t.StatusPane = lipgloss.NewStyle().Foreground(statusColor)
 	t.Unread = lipgloss.NewStyle().Foreground(t.UnreadCount)
 	t.HelpHeading = lipgloss.NewStyle().Foreground(t.Text).Bold(true)
 	t.HelpKey = lipgloss.NewStyle().Foreground(t.ListHeader).Bold(true)
-	t.HelpDim = lipgloss.NewStyle().Foreground(timestampColor)
 	t.Error = lipgloss.NewStyle().Foreground(t.Negative)
 	t.InputTextStyle = lipgloss.NewStyle().
 		Foreground(t.InputText).
 		Background(t.InputBackground)
 	return t, nil
+}
+
+// applyContrast raises every foreground color to a readable ratio against the
+// surface it is drawn on. The input text is measured against the input field
+// background, everything else against the main background; backgrounds
+// themselves are left alone.
+func (t *theme) applyContrast(background rgb) {
+	inputBackground, ok := parseColor(string(t.InputBackground))
+	if !ok {
+		inputBackground = background
+	}
+
+	entries := []struct {
+		name     string
+		dst      *lipgloss.Color
+		backdrop rgb
+		min      float64
+	}{
+		{"text", &t.Text, background, minContrast},
+		{"forwarded_text", &t.ForwardedText, background, minContrast},
+		{"list_header", &t.ListHeader, background, minContrast},
+		{"list_contact", &t.ListContact, background, minContrast},
+		{"list_group", &t.ListGroup, background, minContrast},
+		{"chat_contact", &t.ChatContact, background, minContrast},
+		{"chat_me", &t.ChatMe, background, minContrast},
+		{"borders", &t.Borders, background, borderContrast},
+		{"input_text", &t.InputText, inputBackground, minContrast},
+		{"unread_count", &t.UnreadCount, background, minContrast},
+		{"positive", &t.Positive, background, minContrast},
+		{"negative", &t.Negative, background, minContrast},
+	}
+	for _, e := range entries {
+		raw := string(*e.dst)
+		from, ok := parseColor(raw)
+		if !ok {
+			continue // not something we can reason about (e.g. "default")
+		}
+		adjusted, changed := ensureContrast(from, e.backdrop, e.min)
+		if !changed {
+			continue
+		}
+		*e.dst = lipgloss.Color(adjusted.hex())
+		t.Adjusted = append(t.Adjusted, contrastNote(e.name, from, adjusted, e.backdrop))
+	}
+
+	text, ok := parseColor(string(t.Text))
+	if !ok {
+		text = rgb{255, 255, 255}
+	}
+	t.Dim = lipgloss.Color(dimColor(text, background).hex())
+}
+
+// contrastNotice is the one-line startup hint shown when the palette had to be
+// touched up, or "" when it did not.
+func (t *theme) contrastNotice() string {
+	if len(t.Adjusted) == 0 {
+		return ""
+	}
+	return "Raised for readability: " + strings.Join(t.Adjusted, ", ") +
+		"\nSet [colors] auto_contrast = false to keep the exact values."
 }
 
 // colorListLines renders the color-name preview, replacing the tcell.ColorNames

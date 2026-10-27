@@ -43,8 +43,11 @@ func TestDefaults_Colors(t *testing.T) {
 	if Config.Colors.Background != "black" {
 		t.Errorf("expected default Background 'black', got %q", Config.Colors.Background)
 	}
-	if Config.Colors.Positive != "green" {
-		t.Errorf("expected default Positive 'green', got %q", Config.Colors.Positive)
+	if Config.Colors.Positive != "darkseagreen" {
+		t.Errorf("expected default Positive 'darkseagreen', got %q", Config.Colors.Positive)
+	}
+	if !Config.Colors.AutoContrast {
+		t.Error("expected AutoContrast to default to true")
 	}
 }
 

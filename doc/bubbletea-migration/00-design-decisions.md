@@ -122,6 +122,33 @@ working). Confirmed default format in `config/settings.go`: modifiers spelled
 and single characters bare (`d`, `i`, `o`, `u`, `r`, `s`). Parser handles exactly
 those three shapes and errors loudly on anything else. Implemented in task 06.
 
+## D8. Readable palettes (contrast floor)
+
+The `[colors]` defaults were written for tcell, where `blue` means the *dark*
+ANSI tone. On a black background `#0000ff` is 2.4:1 and `#800080` is 2.2:1 —
+fine for a 1980s terminal, unreadable for sender names and forwarded text in a
+full-screen UI. Two changes, both backwards compatible:
+
+1. **`auto_contrast` (new key, default `true`).** Every foreground color is
+   measured against the surface it is drawn on (main `background`, or
+   `input_background` for `input_text`) using the WCAG relative-luminance
+   formula. Anything under 4.5:1 (3:1 for `borders`, which is a graphical
+   object rather than text) is blended towards white — or towards black when
+   the background is light — until it clears the floor. The hue is preserved, so
+   `blue` becomes `#6060ff` rather than a different color. Adjustments are
+   collected in `theme.Adjusted` and surfaced as one line at startup, so a
+   changed palette is never silent. `auto_contrast = false` restores the exact
+   configured values.
+2. **`dim` is derived, not hard-coded.** Timestamps and hints used a fixed
+   `#696969` (3.8:1, effectively invisible at the end of a row). They are now
+   `text` mixed 45% towards `background`, then passed through the same contrast
+   floor — secondary, but never below 4.5:1.
+
+The shipped defaults were replaced with a readable palette (soft white text,
+amber headers, muted blue senders, grey borders). Existing configs keep their
+values; only the unreadable ones are lifted. Code lives in `ui_contrast.go`
+(math + xterm→RGB) and `theme.applyContrast` (`ui_theme.go`).
+
 ## Version pins (task 01)
 
 | Module | Version | Why |

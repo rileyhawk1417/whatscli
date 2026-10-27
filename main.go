@@ -38,6 +38,9 @@ func main() {
 	ctx.UiHandler = UiHandler{bridge: ctx.Bridge, th: th}
 
 	model := newUIModel(th, ctx.SessionManager, keys)
+	if note := th.contrastNotice(); note != "" {
+		model.msgs.addText(helpDimText(th, note), th)
+	}
 	if keyErr != nil {
 		model.msgs.addText(errorText(th, fmt.Errorf("invalid key binding: %w", keyErr)), th)
 	}

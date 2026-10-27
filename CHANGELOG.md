@@ -27,8 +27,18 @@ All notable changes to the WhatsApp CLI application will be documented in this f
 - The status bar keeps the product name and help hint on the left and shows the
   session status on the right.
 - Invalid `[keymap]` entries are reported as a message instead of being ignored.
+- New installs get a readable default palette (soft white text, amber headers,
+  muted blue senders, grey borders) instead of terminal-basic `blue`/`purple`,
+  which sat at 2.4:1 and 2.2:1 contrast on a black background.
 
 ### Added
+- `auto_contrast` in the `[colors]` section (on by default): foreground colors
+  that would fall below the 4.5:1 WCAG contrast ratio against `background` are
+  lightened along their own hue instead of rendering nearly invisible. Legacy
+  settings are affected most — `blue` (2.4:1) becomes a readable blue — and a
+  one-line note in the message pane lists what was raised.
+- Timestamps and hints use a `dim` tone derived from `text`/`background` rather
+  than a fixed dark grey, so they read as secondary without disappearing.
 - `doc/bubbletea-migration/` — the migration plan, design decisions and a
   terminal smoke-test harness (`tools/pty_qa.py`).
 - Headless tests for the UI model: frame geometry, keymap parsing, input

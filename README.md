@@ -249,24 +249,37 @@ The file is auto-created on first run with sensible defaults. Run `/help` inside
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `background` | `black` | Main background color |
-| `text` | `white` | Default text color |
-| `forwarded_text` | `purple` | Forwarded message indicator |
-| `list_header` | `yellow` | Chat list section headers |
-| `list_contact` | `green` | Contact names in chat list |
-| `list_group` | `blue` | Group names in chat list |
-| `chat_contact` | `green` | Contact names in message view |
-| `chat_me` | `blue` | Your name in message view |
-| `borders` | `white` | UI border color |
-| `input_background` | `blue` | Input field background |
-| `input_text` | `white` | Input field text |
-| `unread_count` | `yellow` | Unread message count badge |
-| `positive` | `green` | Positive status indicators |
-| `negative` | `red` | Error/offline indicators |
+| `background` | `black` | Main background color (set this to match your terminal) |
+| `text` | `lightgray` | Default text color |
+| `forwarded_text` | `mediumpurple` | Forwarded message indicator |
+| `list_header` | `burlywood` | Chat list section headers |
+| `list_contact` | `darkseagreen` | Contact names in chat list |
+| `list_group` | `cornflowerblue` | Group names in chat list |
+| `chat_contact` | `darkseagreen` | Contact names in message view |
+| `chat_me` | `cornflowerblue` | Your name in message view |
+| `borders` | `slategray` | UI border color |
+| `input_background` | `darkslategray` | Input field background |
+| `input_text` | `whitesmoke` | Input field text |
+| `unread_count` | `burlywood` | Unread message count badge |
+| `positive` | `darkseagreen` | Positive status indicators |
+| `negative` | `lightcoral` | Error/offline indicators |
+| `auto_contrast` | `true` | Lighten colors that would be unreadable on `background` |
 
-Colors accept `#rrggbb` hex values, ANSI indices (`0`–`255`), or any X11/CSS
-color name tcell used to support (`black`, `dimgray`, `purple`, …). Use
-`/colorlist` in-app to see all available color names.
+Colors accept any X11/CSS color name (`black`, `dimgray`, `purple`, …), an ANSI
+index (`0`–`255`), or `#rrggbb` hex. Use `/colorlist` in-app to see every
+available name.
+
+> **Hex values must be quoted** — `text = "#c8d0da"` — because `#` starts an
+> INI comment. An unquoted hex value is silently ignored and the default is used.
+
+Older configs use tcell's basic names, which are the *dark* tones: `blue` is
+`#0000ff` (2.4:1 on black) and `purple` is `#800080` (2.2:1), both well below the
+4.5:1 legibility floor. With `auto_contrast` on (the default) those values keep
+their hue but are lightened until they reach 4.5:1 — `blue` becomes `#6060ff` —
+and a one-line note in the message pane lists what changed. Timestamps use a
+`dim` tone derived from `text` and `background`, so they stay secondary without
+disappearing. Set `auto_contrast = false` to render the configured values
+exactly as written.
 
 </details>
 

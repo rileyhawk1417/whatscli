@@ -147,3 +147,8 @@ func errorText(th *theme, err error) string {
 	}
 	return th.Error.Render(err.Error())
 }
+
+// helpDimText renders secondary/notice text in the dim tone.
+func helpDimText(th *theme, text string) string {
+	return th.HelpDim.Render(text)
+}

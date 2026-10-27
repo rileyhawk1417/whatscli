@@ -68,6 +68,9 @@ type Colors struct {
 	UnreadCount     string
 	Positive        string
 	Negative        string
+	// AutoContrast raises colors that would be unreadable on the configured
+	// background; set it to false to keep the exact configured values.
+	AutoContrast bool
 }
 
 var Config = IniFile{
@@ -104,20 +107,23 @@ var Config = IniFile{
 		ChatSidebarWidth: 30,
 	},
 	&Colors{
+		// Names, not hex: go-ini treats a leading "#" as a comment, so hex
+		// defaults would be written with awkward quoting.
 		Background:      "black",
-		Text:            "white",
-		ForwardedText:   "purple",
-		ListHeader:      "yellow",
-		ListContact:     "green",
-		ListGroup:       "blue",
-		ChatContact:     "green",
-		ChatMe:          "blue",
-		Borders:         "white",
-		InputBackground: "blue",
-		InputText:       "white",
-		UnreadCount:     "yellow",
-		Positive:        "green",
-		Negative:        "red",
+		Text:            "lightgray",
+		ForwardedText:   "mediumpurple",
+		ListHeader:      "burlywood",
+		ListContact:     "darkseagreen",
+		ListGroup:       "cornflowerblue",
+		ChatContact:     "darkseagreen",
+		ChatMe:          "cornflowerblue",
+		Borders:         "slategray",
+		InputBackground: "darkslategray",
+		InputText:       "whitesmoke",
+		UnreadCount:     "burlywood",
+		Positive:        "darkseagreen",
+		Negative:        "lightcoral",
+		AutoContrast:    true,
 	},
 }
 
