@@ -29,6 +29,10 @@ func (sm *SessionManager) loadRecentChats() {
 			return
 		}
 
+		// Chats created before the contact store was populated still carry their
+		// phone number; relabel those (and their stored messages) first.
+		sm.applyContactNames(contacts)
+
 		// P-3: Pre-fetch all group names in a single batch call to avoid N+1 API calls.
 		groupNames := make(map[string]string) // JID string → group name
 		if groups, err := client.GetJoinedGroups(context.Background()); err == nil {
@@ -38,7 +42,6 @@ func (sm *SessionManager) loadRecentChats() {
 				}
 			}
 		}
-
 
 		for jid, contact := range contacts {
 			if !contact.Found {
@@ -62,15 +65,8 @@ func (sm *SessionManager) loadRecentChats() {
 					name = "Group: " + jid.User
 				}
 			} else {
-				name = contact.FullName
-				if name == "" {
-					name = contact.PushName
-				}
-				if name == "" {
-					name = jid.User
-				}
+				name = contactDisplayName(jid, contact)
 			}
-
 
 			// Update PQ under lock, collect DB write for outside
 			sm.mu.Lock()
@@ -308,6 +304,10 @@ func (sm *SessionManager) processHistorySync(data *waHistorySync.HistorySync) {
 	safeList := sm.snapshotPQ()
 	sm.mu.Unlock()
 	sm.uiHandler.UpdateChatList(safeList)
+
+	// History sync is what brings push names for chats we have no contact row
+	// for, so re-label the list once the contact store has absorbed them.
+	sm.refreshConversationNames()
 
 	if addMsgErrors > 0 {
 		sm.uiHandler.PrintError(fmt.Errorf("failed to store %d history messages", addMsgErrors))

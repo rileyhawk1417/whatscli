@@ -120,15 +120,10 @@ func (sm *SessionManager) getChatName(jid types.JID) string {
 	}
 
 	// For individual chats, try to get the contact name
-	if client.Store != nil {
+	if client.Store != nil && client.Store.Contacts != nil {
 		contact, err := client.Store.Contacts.GetContact(context.Background(), jid)
 		if err == nil && contact.Found {
-			if contact.FullName != "" {
-				return contact.FullName
-			}
-			if contact.PushName != "" {
-				return contact.PushName
-			}
+			return contactDisplayName(jid, contact)
 		}
 	}
 

@@ -50,6 +50,16 @@ func (eh *eventHandler) Handle(evt interface{}) {
 		eh.sm.uiHandler.PrintText("Logged out: " + reasonText)
 	case *events.HistorySync:
 		go eh.sm.processHistorySync(v.Data)
+	case *events.AppStateSyncComplete:
+		// The address book arrives as app state, usually after the first chat
+		// list has been built from bare phone numbers.
+		if string(v.Name) == "regular" {
+			go eh.sm.refreshConversationNames()
+		}
+	case *events.PushName:
+		eh.sm.renameConversation(v.JID, v.NewPushName)
+	case *events.BusinessName:
+		eh.sm.renameConversation(v.JID, v.NewBusinessName)
 	}
 }
 

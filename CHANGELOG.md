@@ -5,6 +5,11 @@ All notable changes to the WhatsApp CLI application will be documented in this f
 ## [Unreleased]
 
 ### Fixed
+- Chat lists name people instead of showing bare phone numbers. Names come from
+  the address book, then the contact's own push name, then a verified business
+  name; chats created before WhatsApp delivered that data are relabelled too
+  (including the sender column of already stored messages), so the message pane
+  and `/search` show names as well.
 - QR login works again: `whatsmeow` now advertises a current web client version,
   so WhatsApp no longer rejects the handshake with a 405 before sending a code.
 - Pairing failures are reported instead of looping silently on a closed channel,

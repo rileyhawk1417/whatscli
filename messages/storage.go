@@ -80,6 +80,18 @@ func escapeLike(s string) string {
 
 // Close closes the underlying SQLite connection.
 // Safe to call on nil or already-closed databases.
+// UpdateChatContactName rewrites the sender label recorded on every incoming
+// message of a chat. Chats built before the contact store was populated keep
+// bare phone numbers in their message rows, so a late name resolution has to
+// reach back into stored history as well as the conversation row.
+func (md *MessageDatabase) UpdateChatContactName(chatID, name string) error {
+	_, err := md.db.Exec(`
+	UPDATE messages SET contact_name = ?, contact_short = ?
+	WHERE chat_id = ? AND from_me = 0
+	`, name, name, chatID)
+	return err
+}
+
 func (md *MessageDatabase) Close() error {
 	if md.db != nil {
 		return md.db.Close()
