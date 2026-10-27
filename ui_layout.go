@@ -3,159 +3,159 @@ package main
 import (
 	"strings"
 
-	"github.com/gdamore/tcell/v2"
-	"github.com/normen/whatscli/config"
-	"github.com/normen/whatscli/messages"
-	"github.com/rivo/tview"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
-// SetupLeftPane initializes the left panel with Status, Chats, and Groups
-func SetupLeftPane() *tview.Flex {
-	// 1. Status Section
-	ctx.StatusTable = tview.NewTable()
-	ctx.StatusTable.SetSelectable(true, false)
-	ctx.StatusTable.SetBorder(true)
-	ctx.StatusTable.SetTitle(" Status ")
-	ctx.StatusTable.SetTitleAlign(tview.AlignCenter)
-	ctx.StatusTable.SetBorderColor(tcell.ColorNames[config.Config.Colors.Borders])
+// This file holds the pure string-layout primitives used by View(). The old
+// implementation delegated all of this to tview's grid; now we draw a single
+// outer frame with internal rules, which reproduces tview's shared-border look
+// without double lines between panes.
 
-	// 2. Chats Section
-	ctx.ChatTable = tview.NewTable()
-	ctx.ChatTable.SetSelectable(true, false)
-	ctx.ChatTable.SetBorder(true)
-	ctx.ChatTable.SetTitle(" Chats ")
-	ctx.ChatTable.SetTitleAlign(tview.AlignCenter)
-	ctx.ChatTable.SetBorderColor(tcell.ColorNames[config.Config.Colors.Borders])
-
-	// 3. Groups Section
-	ctx.GroupTable = tview.NewTable()
-	ctx.GroupTable.SetSelectable(true, false)
-	ctx.GroupTable.SetBorder(true)
-	ctx.GroupTable.SetTitle(" Groups ")
-	ctx.GroupTable.SetTitleAlign(tview.AlignCenter)
-	ctx.GroupTable.SetBorderColor(tcell.ColorNames[config.Config.Colors.Borders])
-
-	// Helper to update focus appearance (mutually exclusive)
-	setActiveTable := func(active *tview.Table) {
-		tables := []*tview.Table{ctx.StatusTable, ctx.ChatTable, ctx.GroupTable}
-		for _, t := range tables {
-			if t == active {
-				t.SetSelectable(true, false)
-				t.SetSelectedStyle(tcell.StyleDefault.Reverse(true))
-			} else {
-				t.SetSelectable(false, false)
-				t.SetSelectedStyle(tcell.StyleDefault)
-			}
-		}
+// fit truncates or right-pads s to exactly w display cells. ANSI-aware so
+// styled text keeps its escapes intact.
+func fit(s string, w int) string {
+	if w <= 0 {
+		return ""
 	}
-
-	// --- Selection handlers: open chat on click/Enter ---
-	// These fire via SetSelectionChangedFunc (mouse click, arrow keys) and
-	// SetSelectedFunc (Enter key).  The RenderingList guard prevents
-	// ghost-scrolling when RenderChatTable restores selection.
-
-	openFromStatus := func(row, column int) {
-		if ctx.RenderingList {
-			return
-		}
-		if row >= 0 && row < ctx.StatusTable.GetRowCount() {
-			cell := ctx.StatusTable.GetCell(row, 0)
-			if cell != nil {
-				if ref := cell.GetReference(); ref != nil {
-					conv := ref.(*messages.Conversation)
-					chat := messages.Chat{
-						Id:          conv.JID,
-						Name:        conv.Name,
-						Unread:      int(conv.Unread),
-						LastMessage: conv.LastMsgTime,
-						IsGroup:     strings.HasSuffix(conv.JID, messages.GROUPSUFFIX),
-					}
-					SetDisplayedChat(chat)
-				}
-			}
-		}
+	if lipgloss.Width(s) > w {
+		s = ansi.Truncate(s, w, "…")
 	}
-
-	openFromChat := func(row, column int) {
-		if ctx.RenderingList {
-			return
-		}
-		if row >= 0 && row < ctx.ChatTable.GetRowCount() {
-			cell := ctx.ChatTable.GetCell(row, 0)
-			if cell != nil {
-				if ref := cell.GetReference(); ref != nil {
-					conv := ref.(*messages.Conversation)
-					chat := messages.Chat{
-						Id:          conv.JID,
-						Name:        conv.Name,
-						Unread:      int(conv.Unread),
-						LastMessage: conv.LastMsgTime,
-						IsGroup:     strings.HasSuffix(conv.JID, messages.GROUPSUFFIX),
-					}
-					SetDisplayedChat(chat)
-				}
-			}
-		}
-		// Infinite scroll trigger
-		if row >= ctx.ChatTable.GetRowCount()-5 && ctx.ChatLimit < len(ctx.AllChats) {
-			ctx.ChatLimit += batchSize
-			RenderChatTable()
-		}
+	if gap := w - lipgloss.Width(s); gap > 0 {
+		s += strings.Repeat(" ", gap)
 	}
+	return s
+}
 
-	openFromGroup := func(row, column int) {
-		if ctx.RenderingList {
-			return
-		}
-		if row >= 0 && row < ctx.GroupTable.GetRowCount() {
-			cell := ctx.GroupTable.GetCell(row, 0)
-			if cell != nil {
-				if ref := cell.GetReference(); ref != nil {
-					conv := ref.(*messages.Conversation)
-					chat := messages.Chat{
-						Id:          conv.JID,
-						Name:        conv.Name,
-						Unread:      int(conv.Unread),
-						LastMessage: conv.LastMsgTime,
-						IsGroup:     strings.HasSuffix(conv.JID, messages.GROUPSUFFIX),
-					}
-					SetDisplayedChat(chat)
-				}
-			}
-		}
+// padTo pads s on the right to w cells without truncating.
+func padTo(s string, w int) string {
+	if gap := w - lipgloss.Width(s); gap > 0 {
+		return s + strings.Repeat(" ", gap)
 	}
+	return s
+}
 
-	// Wire: SelectionChanged fires on click + arrow keys; Selected fires on Enter.
-	ctx.StatusTable.SetSelectionChangedFunc(openFromStatus)
-	ctx.StatusTable.SetSelectedFunc(openFromStatus)
+// frameTop renders "┌────┐".
+func frameTop(w int, th *theme) string {
+	if w < 2 {
+		return strings.Repeat("─", max(w, 0))
+	}
+	return th.Border.Render("┌" + strings.Repeat("─", w-2) + "┐")
+}
 
-	ctx.ChatTable.SetSelectionChangedFunc(openFromChat)
-	ctx.ChatTable.SetSelectedFunc(openFromChat)
+// frameBottom renders "└────┘".
+func frameBottom(w int, th *theme) string {
+	if w < 2 {
+		return strings.Repeat("─", max(w, 0))
+	}
+	return th.Border.Render("└" + strings.Repeat("─", w-2) + "┘")
+}
 
-	ctx.GroupTable.SetSelectionChangedFunc(openFromGroup)
-	ctx.GroupTable.SetSelectedFunc(openFromGroup)
+// frameRule renders a horizontal separator spanning the frame, e.g. "├────┤".
+func frameRule(w int, th *theme) string {
+	if w < 2 {
+		return strings.Repeat("─", max(w, 0))
+	}
+	return th.Border.Render("├" + strings.Repeat("─", w-2) + "┤")
+}
 
-	ctx.StatusTable.SetFocusFunc(func() {
-		setActiveTable(ctx.StatusTable)
-	})
+// ruleTitled renders a horizontal separator with an inline title:
+// "├─ Chats ─────────────┤". The title is highlighted when the section holds
+// focus, replacing tview's SetBorderColor-on-focus behaviour.
+func ruleTitled(w int, title string, focused bool, th *theme) string {
+	if w < 4 {
+		return frameRule(w, th)
+	}
+	style := th.SectionTitle
+	if focused {
+		style = th.SectionTitleHi
+	}
+	label := style.Render(" " + title + " ")
+	// Leave room for the corners and at least one dash after the label.
+	avail := w - 3
+	if lipgloss.Width(label) > avail {
+		label = ansi.Truncate(label, avail, "…")
+	}
+	rest := w - 3 - lipgloss.Width(label)
+	if rest < 0 {
+		rest = 0
+	}
+	return th.Border.Render("├─") + label + th.Border.Render(strings.Repeat("─", rest)+"┤")
+}
 
-	ctx.ChatTable.SetFocusFunc(func() {
-		setActiveTable(ctx.ChatTable)
-	})
+// ruleTitledRight renders a separator with a right-aligned title, used for the
+// current chat name above the message pane.
+func ruleTitledRight(w int, title string, th *theme) string {
+	if w < 4 {
+		return frameRule(w, th)
+	}
+	if title == "" {
+		return frameRule(w, th)
+	}
+	label := th.SectionTitle.Render(" " + title + " ")
+	avail := w - 4
+	if lipgloss.Width(label) > avail {
+		label = ansi.Truncate(label, avail, "…")
+	}
+	dashes := w - 3 - lipgloss.Width(label)
+	if dashes < 0 {
+		dashes = 0
+	}
+	return th.Border.Render("├"+strings.Repeat("─", dashes)) + label + th.Border.Render("┤")
+}
 
-	ctx.GroupTable.SetFocusFunc(func() {
-		setActiveTable(ctx.GroupTable)
-	})
+// vRule is the vertical pane separator, shared between the sidebar and the
+// message pane.
+func vRule(th *theme) string { return th.Border.Render("│") }
 
-	// Initialize styles (start with all inactive)
-	setActiveTable(nil)
+// vRuleFocused renders the separator; it brightens when the message pane holds
+// focus so the active side is obvious without border-colour juggling.
+func vRuleFocused(focused bool, th *theme) string {
+	if focused {
+		return th.BorderActive.Render("│")
+	}
+	return th.Border.Render("│")
+}
 
-	ctx.LeftPane = tview.NewFlex().SetDirection(tview.FlexRow)
-	// Status: Border top + 1 row + Border bottom = 3 lines
-	ctx.LeftPane.AddItem(ctx.StatusTable, 3, 1, false)
+// frameSide wraps a single content line in the outer vertical borders.
+func frameSide(content string, th *theme) string {
+	return th.Border.Render("│") + content + th.Border.Render("│")
+}
 
-	ctx.LeftPane.AddItem(ctx.ChatTable, 0, 1, true)
-	ctx.LeftPane.AddItem(ctx.GroupTable, 0, 1, false)
+// wrapText wraps styled text to width w, hard-breaking overlong words. Returns
+// one entry per display line.
+func wrapText(s string, w int) []string {
+	if w <= 0 {
+		return []string{s}
+	}
+	wrapped := ansi.Wordwrap(s, w, "")
+	wrapped = ansi.Hardwrap(wrapped, w, true)
+	return strings.Split(wrapped, "\n")
+}
 
-	return ctx.LeftPane
+// max returns the larger of a and b.
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// min returns the smaller of a and b.
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// clamp returns v limited to [lo, hi].
+func clamp(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }

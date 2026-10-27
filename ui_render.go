@@ -1,56 +1,16 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
-	"io"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/gdamore/tcell/v2"
-	"github.com/normen/whatscli/config"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/normen/whatscli/messages"
-	"github.com/rivo/tview"
 )
 
-// get a string representation of all messages for chat
-func getMessagesString(msgs []messages.Message) string {
-	out := ""
-	for _, msg := range msgs {
-		if strings.TrimSpace(msg.Text) == "" {
-			continue // skip empty/protocol messages
-		}
-		out += getTextMessageString(&msg)
-		out += "\n"
-	}
-	return out
-}
-
-// create a formatted string with regions based on message ID from a text message
-func getTextMessageString(msg *messages.Message) string {
-	colorMe := config.Config.Colors.ChatMe
-	colorContact := config.Config.Colors.ChatContact
-	out := ""
-	text := tview.Escape(msg.Text)
-	if msg.Forwarded {
-		text = "[" + config.Config.Colors.ForwardedText + "]" + text + "[-]"
-	}
-	tim := time.Unix(int64(msg.Timestamp), 0)
-	time := tim.Format("02-01-06 15:04:05")
-	out += "[\""
-	out += msg.Id
-	out += "\"]"
-	if msg.FromMe { //msg from me
-		out += "[-::d](" + time + ") [" + colorMe + "::b]Me: [-::-]" + text
-	} else { // message from others
-		out += "[-::d](" + time + ") [" + colorContact + "::b]" + msg.ContactShort + ": [-::-]" + text
-	}
-	out += "[\"\"]"
-	return out
-}
+// This file holds pure formatting helpers: they take data plus a theme and
+// return styled strings. No model state, no terminal I/O — easy to unit test.
 
 // formatRelativeTime formats a Unix timestamp into a WhatsApp Web–style
 // relative label: "just now", "5m", "2h", "Yesterday", weekday, or "Jan 02".
@@ -93,184 +53,91 @@ func formatRelativeTime(timestamp int64) string {
 	}
 }
 
-// RenderChatTable renders the table based on ctx.AllChats and ctx.ChatLimit
-func RenderChatTable() {
-	// Snapshot current selection by JID
-	var selectedStatusJID string
-	var selectedChatJID string
-	var selectedGroupJID string
-
-	if rowS, _ := ctx.StatusTable.GetSelection(); rowS >= 0 && rowS < ctx.StatusTable.GetRowCount() {
-		if cell := ctx.StatusTable.GetCell(rowS, 0); cell != nil {
-			if ref := cell.GetReference(); ref != nil {
-				selectedStatusJID = ref.(*messages.Conversation).JID
-			}
-		}
+// chatRowName builds the display name for a conversation, including the pinned
+// marker and the unread counter.
+func chatRowName(conv *messages.Conversation, th *theme) string {
+	name := conv.Name
+	if name == "" {
+		name = conv.JID // Fallback
 	}
-	if rowC, _ := ctx.ChatTable.GetSelection(); rowC >= 0 && rowC < ctx.ChatTable.GetRowCount() {
-		if cell := ctx.ChatTable.GetCell(rowC, 0); cell != nil {
-			if ref := cell.GetReference(); ref != nil {
-				selectedChatJID = ref.(*messages.Conversation).JID
-			}
-		}
+	out := name
+	if conv.IsPinned {
+		out = "📌 " + out
 	}
-	if rowG, _ := ctx.GroupTable.GetSelection(); rowG >= 0 && rowG < ctx.GroupTable.GetRowCount() {
-		if cell := ctx.GroupTable.GetCell(rowG, 0); cell != nil {
-			if ref := cell.GetReference(); ref != nil {
-				selectedGroupJID = ref.(*messages.Conversation).JID
-			}
-		}
+	if conv.Unread > 0 {
+		out += " " + th.Unread.Render(fmt.Sprintf("(%d)", conv.Unread))
 	}
-
-	displayList := ctx.AllChats
-	if len(displayList) > ctx.ChatLimit {
-		displayList = displayList[:ctx.ChatLimit]
-	}
-
-	ctx.StatusTable.Clear()
-	ctx.ChatTable.Clear()
-	ctx.GroupTable.Clear()
-
-	sIdx := 0
-	cIdx := 0
-	gIdx := 0
-
-	// Indexes to restore
-	newRowS := 0
-	newRowC := 0
-	newRowG := 0
-
-	for _, conv := range displayList {
-		// Skip archived chats
-		if conv.IsArchived {
-			continue
-		}
-
-		// Name cell
-		name := conv.Name
-		if name == "" {
-			name = conv.JID // Fallback
-		}
-
-		// Unread status
-		if conv.Unread > 0 {
-			name += " ([" + config.Config.Colors.UnreadCount + "]" + fmt.Sprint(conv.Unread) + "[-])"
-		}
-
-		// Pinned indicator
-		if conv.IsPinned {
-			name = "📌 " + name
-		}
-
-		cell := tview.NewTableCell(name).
-			SetReference(conv).
-			SetExpansion(1).
-			SetSelectable(true)
-
-		// Timestamp cell (right-aligned, dim)
-		tsText := formatRelativeTime(conv.LastMsgTime)
-		tsCell := tview.NewTableCell(tsText).
-			SetAlign(tview.AlignRight).
-			SetSelectable(true).
-			SetExpansion(0)
-
-		// Color & Split
-		if conv.JID == messages.STATUSSUFFIX {
-			// Status
-			cell.SetTextColor(tcell.ColorYellow) // Distinct color
-			tsCell.SetTextColor(tcell.ColorDimGray)
-			ctx.StatusTable.SetCell(sIdx, 0, cell)
-			ctx.StatusTable.SetCell(sIdx, 1, tsCell)
-			if conv.JID == selectedStatusJID {
-				newRowS = sIdx
-			}
-			sIdx++
-		} else if strings.HasSuffix(conv.JID, messages.GROUPSUFFIX) {
-			// Group
-			cell.SetTextColor(tcell.ColorNames[config.Config.Colors.ListGroup])
-			tsCell.SetTextColor(tcell.ColorDimGray)
-			ctx.GroupTable.SetCell(gIdx, 0, cell)
-			ctx.GroupTable.SetCell(gIdx, 1, tsCell)
-			if conv.JID == selectedGroupJID {
-				newRowG = gIdx
-			}
-			gIdx++
-		} else {
-			// Contact
-			cell.SetTextColor(tcell.ColorNames[config.Config.Colors.ListContact])
-			tsCell.SetTextColor(tcell.ColorDimGray)
-			ctx.ChatTable.SetCell(cIdx, 0, cell)
-			ctx.ChatTable.SetCell(cIdx, 1, tsCell)
-			if conv.JID == selectedChatJID {
-				newRowC = cIdx
-			}
-			cIdx++
-		}
-	}
-
-	// Restore selection — guard prevents SetSelectionChangedFunc from
-	// firing SetDisplayedChat during this programmatic Select().
-	ctx.RenderingList = true
-	if ctx.StatusTable.GetRowCount() > 0 {
-		ctx.StatusTable.Select(newRowS, 0)
-	}
-
-	if ctx.ChatTable.GetRowCount() > 0 {
-		ctx.ChatTable.Select(newRowC, 0)
-	}
-
-	if ctx.GroupTable.GetRowCount() > 0 {
-		ctx.GroupTable.Select(newRowG, 0)
-	}
-	ctx.RenderingList = false
+	return out
 }
 
-// prints an image attachment to the TextView (by message id)
-func PrintImage(path string) {
-	// Sanitize path to prevent command injection / path traversal
-	cleanPath := filepath.Clean(path)
-	absPath, err := filepath.Abs(cleanPath)
-	if err != nil {
-		PrintError(fmt.Errorf("invalid file path: %v", err))
-		return
+// renderChatRow renders one sidebar entry to exactly w cells. When selected the
+// whole row is reverse-video so the cursor is visible across the full width.
+func renderChatRow(conv *messages.Conversation, selected bool, color lipgloss.Color, w int, th *theme) string {
+	if w <= 0 {
+		return ""
+	}
+	ts := formatRelativeTime(conv.LastMsgTime)
+	tsW := 0
+	if ts != "" {
+		tsW = lipgloss.Width(ts) + 1 // one space before the timestamp
+	}
+	nameW := w - tsW
+	if nameW < 4 {
+		// Not enough room for a timestamp; drop it.
+		ts, tsW = "", 0
+		nameW = w
 	}
 
-	// Verify the file exists
-	if _, err := os.Stat(absPath); err != nil {
-		PrintError(fmt.Errorf("file not found: %v", err))
-		return
-	}
+	name := chatRowName(conv, th)
+	namePlain := ansiTruncate(name, nameW)
+	namePadded := namePlain + strings.Repeat(" ", max(0, nameW-lipgloss.Width(namePlain)))
 
-	// Verify the path is under the configured download or preview directory.
-	// Resolve symlinks to prevent symlink-based directory escape (audit S-2).
-	resolvedPath, err := filepath.EvalSymlinks(absPath)
-	if err != nil {
-		PrintError(fmt.Errorf("could not resolve path: %v", err))
-		return
-	}
-	downloadDir := filepath.Clean(config.Config.General.DownloadPath)
-	previewDir := filepath.Clean(config.Config.General.PreviewPath)
-	if !strings.HasPrefix(resolvedPath, downloadDir) && !strings.HasPrefix(resolvedPath, previewDir) {
-		PrintError(fmt.Errorf("file path outside allowed directories"))
-		return
-	}
-
-	cmdParts := strings.Split(config.Config.General.ShowCommand, " ")
-	cmdParts = append(cmdParts, resolvedPath)
-	var cmd *exec.Cmd
-	size := len(cmdParts)
-	if size > 1 {
-		cmd = exec.Command(cmdParts[0], cmdParts[1:]...)
-	} else if size > 0 {
-		cmd = exec.Command(cmdParts[0])
-	}
-	var stdout io.ReadCloser
-	if stdout, err = cmd.StdoutPipe(); err == nil {
-		if err = cmd.Start(); err == nil {
-			reader := bufio.NewReader(stdout)
-			io.Copy(tview.ANSIWriter(ctx.TextView), reader)
-			return
+	if selected {
+		row := namePadded
+		if tsW > 0 {
+			row += " " + ts
 		}
+		return th.Selected.Render(padTo(row, w))
 	}
-	PrintError(err)
+
+	paneColor := lipgloss.NewStyle().Foreground(color)
+	row := paneColor.Render(namePadded)
+	if tsW > 0 {
+		row += " " + th.TimeDim.Render(ts)
+	}
+	return row
+}
+
+// renderMessage renders one chat message: dim timestamp, bold coloured sender,
+// then the message body (tinted when forwarded).
+func renderMessage(msg *messages.Message, th *theme) string {
+	ts := time.Unix(int64(msg.Timestamp), 0).Format("02-01-06 15:04:05")
+	out := th.TimeDim.Render("(" + ts + ") ")
+
+	sender := "Me"
+	senderColor := th.ChatMe
+	if !msg.FromMe {
+		sender = msg.ContactShort
+		if sender == "" {
+			sender = msg.ContactName
+		}
+		senderColor = th.ChatContact
+	}
+	out += lipgloss.NewStyle().Foreground(senderColor).Bold(true).Render(sender) + ": "
+
+	textColor := th.Text
+	if msg.Forwarded {
+		textColor = th.ForwardedText
+	}
+	out += lipgloss.NewStyle().Foreground(textColor).Render(msg.Text)
+	return out
+}
+
+// ansiTruncate truncates styled text to w display cells, appending an ellipsis
+// only when something was actually removed.
+func ansiTruncate(s string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	return fit(s, w)
 }
