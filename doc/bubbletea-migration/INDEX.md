@@ -32,7 +32,7 @@ Design decisions: `00-design-decisions.md` (D1–D7, all settled)
 | ID | Task | Depends on | Status | Detail |
 |----|------|-----------|--------|--------|
 | 08 | Remove tview/tcell/cbind, delete legacy files, fix tests | 01–07 | ✅ done | [08-cleanup.md](08-cleanup.md) |
-| 09 | Test coverage, race verification, manual QA checklist | 08 | ◐ in progress | [09-testing-and-qa.md](09-testing-and-qa.md) |
+| 09 | Test coverage, race verification, manual QA checklist | 08 | ✅ done | [09-testing-and-qa.md](09-testing-and-qa.md) |
 
 ## Working agreements
 
@@ -51,3 +51,6 @@ Design decisions: `00-design-decisions.md` (D1–D7, all settled)
 - M3 (after 07): feature parity vs `doc/screenshot.png` — QR login, chat lists,
   message selection, keymap-driven shortcuts, mouse toggle, status bar.
 - M4 (after 09): green `-race` CI, zero tcell/tview imports, README updated.
+
+Terminal smoke tests without a WhatsApp session:
+`doc/bubbletea-migration/tools/pty_qa.py` (see 09-testing-and-qa.md).

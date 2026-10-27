@@ -39,6 +39,10 @@ const (
 type keyMap struct {
 	global   map[string]action
 	messages map[string]action
+	// backspaceIsHelp records that some binding parsed to "backspace" (the
+	// terminal sends the same byte for Ctrl+? and Backspace). While the input
+	// line is focused that key must edit text instead of firing the action.
+	backspaceIsHelp bool
 }
 
 // bindingSpec pairs a config value with the action it triggers.
@@ -87,6 +91,9 @@ func buildKeyMap(km config.Keymap) (keyMap, error) {
 			out.global[key] = s.act
 		}
 	}
+	if _, ok := out.global["backspace"]; ok {
+		out.backspaceIsHelp = true
+	}
 	// The mouse toggle has always been hardcoded as Ctrl+p.
 	out.global["ctrl+p"] = actToggleMouse
 
@@ -100,6 +107,9 @@ func buildKeyMap(km config.Keymap) (keyMap, error) {
 // (the old app-level input capture ran before widget handling) and falling back
 // to message-pane bindings when that pane is focused.
 func (k keyMap) lookup(key string, area focusArea) action {
+	if key == "backspace" && area == focusInput && k.backspaceIsHelp {
+		return actNone
+	}
 	if a, ok := k.global[key]; ok {
 		return a
 	}

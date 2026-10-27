@@ -18,7 +18,11 @@ func testTheme() *theme { return &theme{} }
 func testModel(t *testing.T) uiModel {
 	t.Helper()
 	sm := &messages.SessionManager{CommandChannel: make(chan messages.Command, 16)}
-	km := keyMap{global: map[string]action{"ctrl+p": actToggleMouse}, messages: map[string]action{}}
+	km := keyMap{
+		global:          map[string]action{"ctrl+p": actToggleMouse, "backspace": actCommandHelp},
+		messages:        map[string]action{},
+		backspaceIsHelp: true,
+	}
 	m := newUIModel(testTheme(), sm, km)
 	m.resize(100, 30)
 	return m
@@ -116,7 +120,8 @@ func TestBuildKeyMapDefaults(t *testing.T) {
 	}{
 		{"ctrl+w", focusInput, actFocusMessages},
 		{"tab", focusInput, actSwitchPanels},
-		{"backspace", focusInput, actCommandHelp},
+		{"backspace", focusInput, actNone}, // editable: Ctrl+? == Backspace byte
+		{"backspace", focusMessages, actCommandHelp},
 		{"ctrl+p", focusChats, actToggleMouse},
 		{"d", focusMessages, actMessageDownload},
 		{"d", focusChats, actNone}, // message actions are pane-scoped
@@ -335,5 +340,36 @@ func TestEmptyScreenShowsHint(t *testing.T) {
 	m = updated.(uiModel)
 	if !strings.Contains(m.View(), "no messages") {
 		t.Fatalf("expected empty-chat hint, got:\n%s", m.View())
+	}
+}
+
+// Ctrl+? and Backspace are the same byte, so the default help binding must not
+// swallow backspace while the user is typing.
+func TestBackspaceEditsInputInsteadOfShowingHelp(t *testing.T) {
+	m := testModel(t)
+	if got := m.keys.lookup("backspace", focusInput); got != actNone {
+		t.Fatalf("backspace in input resolved to %v, want actNone", got)
+	}
+	if got := m.keys.lookup("backspace", focusMessages); got != actCommandHelp {
+		t.Fatalf("backspace outside the input resolved to %v, want actCommandHelp", got)
+	}
+}
+
+// Free-form output (help, errors, QR codes) must scroll into view when the user
+// is already at the bottom, but must not yank them away from history they are
+// reading.
+func TestFreeFormOutputFollowsBottom(t *testing.T) {
+	m := testModel(t)
+	m.resize(80, 24)
+
+	m.msgs.addText(strings.Repeat("line\n", 100), m.th)
+	if m.msgs.vp.YOffset != len(m.msgs.lines)-m.msgs.vp.Height {
+		t.Fatalf("YOffset = %d, want %d (bottom)", m.msgs.vp.YOffset, len(m.msgs.lines)-m.msgs.vp.Height)
+	}
+
+	m.msgs.vp.SetYOffset(0)
+	m.msgs.addText("another line", m.th)
+	if m.msgs.vp.YOffset != 0 {
+		t.Fatalf("YOffset = %d, want 0 (user had scrolled up)", m.msgs.vp.YOffset)
 	}
 }

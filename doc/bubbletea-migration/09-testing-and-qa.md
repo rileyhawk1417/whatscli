@@ -7,19 +7,55 @@ Prove parity and stability: automated tests green under `-race`, manual QA
 checklist executed end-to-end against real WhatsApp.
 
 ## Automated
-1. Unit tests (table-driven, `package main`, in-memory where applicable):
-   - keymap parser (from 06) — done
-   - theme resolver — done
-   - chat list model: sort order, pinned, infinite scroll trigger
-   - message rendering: sender coloring, forwarded, skip-empty, wrapping
-   - selection navigation: j/k ±1, PgUp/PgDn ±10, g/G bounds, Esc clear,
-     GetOffsetMsgId-port edge cases (empty list, out-of-range offset)
-   - input: prefix detection, params split, empty receiver
-   - UpdateQR/port content composition
-2. `make test` with `-race` — full suite, including all `messages/` tests.
-3. `make vet`, golangci-lint if configured in repo CI (check `.github/`).
+
+`ui_model_test.go` (package `main`) covers everything that is pure logic or
+plain model state, so most of the TUI is testable without a terminal:
+
+| Area | Test | What it locks in |
+|---|---|---|
+| geometry | `TestViewGeometry`, `TestViewTooSmall` | exact width/height for 100x30, 80x24, 40x12, 200x60; placeholder below minimum |
+| keymap | `TestCanonicalKey`, `TestBuildKeyMapDefaults`, `TestBuildKeyMapReportsInvalid` | all 17 bindings parse; pane-scoped `d`; invalid specs reported not ignored |
+| keymap | `TestBackspaceEditsInputInsteadOfShowingHelp` | `Ctrl+?` and Backspace share a byte, so backspace must edit text in the input |
+| input | `TestSubmitInputSendsCommand`, `TestSubmitInputPlainTextSendsMessage` | `/cmd` vs plain text routing, empty input is a no-op |
+| messages | `TestNewScreenRendersMessages`, `TestMessageSelectionHighlight`, `TestEmptyScreenShowsHint` | history rendering, selection highlight, empty state |
+| messages | `TestANSIPassthroughIsNotRewrapped`, `TestFreeFormOutputFollowsBottom` | QR/image blocks are never re-wrapped; help output follows the bottom unless the user scrolled up |
+| sidebar | `TestSidebarSortAndSplit`, `TestSidebarSelectionSurvivesRefresh`, `TestSidebarRenderFillsHeight` | pinned-then-recent order, status/chat/group split, selection by JID, full-height panes |
+| focus | `TestCycleFocusSkipsEmptyStatus`, `TestCtrlPReportsMouseState` | focus cycling and the mouse toggle notice |
+
+Commands:
+
+```bash
+make test          # go test -race ./...   (messages/ included, untouched)
+make vet
+gofmt -l .         # messages/*.go were already unformatted before the migration
+```
+
+CI: `.github/workflows` runs build/vet/test; nothing extra to configure — the
+UI tests need no terminal and no network.
+
+## Terminal smoke test (no WhatsApp session needed)
+
+`tools/pty_qa.py` starts the binary in a pseudo-terminal of a chosen size, sends
+keystrokes, emulates the screen (cursor addressing, deferred wrap, scroll
+regions) and prints the resulting frame. It answers lipgloss's OSC-11/DSR
+queries, which a bare pty otherwise leaves hanging.
+
+```bash
+make build
+./doc/bubbletea-migration/tools/pty_qa.py                       # startup screen
+./doc/bubbletea-migration/tools/pty_qa.py --keys '/help\r'      # help + scroll-to-bottom
+./doc/bubbletea-migration/tools/pty_qa.py --keys '\x10'         # Ctrl+p mouse notice
+./doc/bubbletea-migration/tools/pty_qa.py --width 80 --height 24 --snapshot /tmp/frame.raw
+```
+
+Without a session the backend prints `connecting..` / `Please scan the QR code
+with your phone`, so this verifies the frame, the input line, the help screen
+and shutdown — not the chat flow.
 
 ## Manual QA checklist (record results here or in PR description)
+
+Run against a real account (`whatscli --debug` for protocol logs):
+
 - [ ] Fresh login: QR displays, scan completes, sidebar fills.
 - [ ] Send/receive 1:1 chat; group chat; emoji/CJK names align.
 - [ ] Unread counts update; read command clears them.
@@ -28,12 +64,27 @@ checklist executed end-to-end against real WhatsApp.
 - [ ] Image render via ShowCommand inside pane; QR ANSI correct size.
 - [ ] Backlog command pastes older messages; scroll-up rule holds.
 - [ ] Mouse toggle Ctrl+p; native selection works when off (D4 policy).
-- [ ] All INI keymap keys fire; INI colors theme the app.
+- [ ] All INI keymap keys fire; INI colors theme the app (`/colorlist`).
 - [ ] Status bar: online/offline, battery indicators (L/l, S/s).
 - [ ] Quit → clean disconnect, `session_meta.db` intact, WAL sane.
 - [ ] Terminal resize during all states (QR, chat view, help).
 - [ ] Windows Terminal + mintty + tmux spot-checks (note failures by TERM).
 
+### Results so far (Linux, xterm-256color, 110x30 pty)
+
+| Check | Result |
+|---|---|
+| Startup frame, title bar, sidebar panes, input line | ✅ `pty_qa.py` |
+| `/help` renders and scrolls into view; sections match the keymap | ✅ |
+| Typing echoes in the input line; Esc clears | ✅ |
+| `Ctrl+p` prints the state notice and toggles mouse reporting | ✅ |
+| `Ctrl+q` disconnects, leaves the alt screen and restores the cursor | ✅ |
+| Resize while running (SIGWINCH) | ✅ 110x30 → 80x24 frame stays rectangular |
+| QR code / image passthrough | ⚠️ needs a live login (no network on the build box); covered by `TestANSIPassthroughIsNotRewrapped` |
+| Everything requiring a WhatsApp session | ⚠️ pending a manual run |
+
 ## Wrap-up
-- [ ] README/CHANGELOG final; M4 gate met; merge PR to main.
-- [ ] Drop a project memory checkpoint pointing at these docs.
+- [x] README/CLAUDE.md updated for the bubbletea stack.
+- [x] Zero `tview` / `tcell` / `cbind` imports; dependencies removed.
+- [ ] Live-account pass over the checklist above (M4 sign-off).
+- [ ] Project memory checkpoint pointing at these docs.

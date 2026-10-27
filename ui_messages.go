@@ -85,8 +85,11 @@ func (p *messagesPane) clear() {
 func (p *messagesPane) setScreen(msgs []messages.Message, th *theme) {
 	p.clear()
 	for i := range msgs {
-		p.addMessageEntry(msgs[i], th)
+		// Build the blocks directly and re-flow once: a backlog can hold
+		// thousands of messages and refreshing per message is quadratic.
+		p.appendMessage(msgs[i], th)
 	}
+	p.refresh()
 	p.vp.GotoBottom()
 }
 
@@ -100,31 +103,49 @@ func (p *messagesPane) addMessage(msg messages.Message, th *theme) {
 	}
 }
 
-// addMessageEntry appends one message and records its entry/line bookkeeping.
-func (p *messagesPane) addMessageEntry(msg messages.Message, th *theme) {
+// addMessageEntry appends one message, re-flows, and returns whether it was
+// actually added.
+func (p *messagesPane) addMessageEntry(msg messages.Message, th *theme) bool {
+	if !p.appendMessage(msg, th) {
+		return false
+	}
+	p.refresh()
+	return true
+}
+
+// appendMessage records a message without touching the viewport content.
+func (p *messagesPane) appendMessage(msg messages.Message, th *theme) bool {
 	if strings.TrimSpace(msg.Text) == "" {
-		return // skip empty/protocol messages, as getMessagesString did
+		return false // skip empty/protocol messages, as getMessagesString did
 	}
 	idx := len(p.entries)
 	p.entries = append(p.entries, msg)
 	p.blocks = append(p.blocks, paneBlock{styled: renderMessage(&msg, th), msg: idx, wrap: true})
-	p.refresh()
+	return true
 }
 
 // addText appends free-form output (help, errors, notices).
 func (p *messagesPane) addText(text string, th *theme) {
+	atBottom := p.atBottom()
 	style := lipgloss.NewStyle().Foreground(p.th.Text)
 	for _, raw := range strings.Split(text, "\n") {
 		p.blocks = append(p.blocks, paneBlock{styled: style.Render(raw), msg: -1, wrap: true})
 	}
 	p.refresh()
+	if atBottom {
+		p.vp.GotoBottom()
+	}
 }
 
 // addStyled appends pre-rendered ANSI. Wrapping is opt-in because QR codes and
 // image output must never be re-flowed (decision D6).
 func (p *messagesPane) addStyled(text string, wrap bool) {
+	atBottom := p.atBottom()
 	p.blocks = append(p.blocks, paneBlock{styled: text, msg: -1, wrap: wrap})
 	p.refresh()
+	if atBottom {
+		p.vp.GotoBottom()
+	}
 }
 
 // replaceWithText clears the pane and shows free-form text.
