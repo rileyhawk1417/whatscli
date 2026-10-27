@@ -37,7 +37,6 @@ type theme struct {
 	Adjusted []string
 
 	// Derived styles.
-	TopBar         lipgloss.Style
 	Border         lipgloss.Style
 	BorderActive   lipgloss.Style
 	SectionTitle   lipgloss.Style
@@ -95,7 +94,23 @@ func resolveColor(value string) (lipgloss.Color, error) {
 // entry so misconfiguration is reported at startup instead of silently
 // rendering black text. Foreground colors are lifted until they are legible on
 // the configured background (see ui_contrast.go) unless auto_contrast is off.
-func loadTheme(c config.Colors) (*theme, error) {
+func loadTheme(c config.Colors) (*theme, error) { return loadThemeWith(c, nil) }
+
+// loadThemeWith resolves a palette, optionally on top of a named preset.
+// overrides names the color keys the config file actually contains, so
+// `theme = dark` plus `chat_me = red` keeps the preset for everything except
+// chat_me. A nil overrides map applies the given palette wholesale.
+func loadThemeWith(c config.Colors, overrides map[string]bool) (*theme, error) {
+	name := strings.ToLower(strings.TrimSpace(c.Theme))
+	if name != "" {
+		preset, ok := findTheme(name)
+		if !ok {
+			return nil, fmt.Errorf("colors.theme: unknown theme %q (available: %s)",
+				c.Theme, strings.Join(themeNames(), ", "))
+		}
+		c = mergePalette(preset.Colors, c, overrides)
+	}
+
 	type pair struct {
 		name  string
 		value string
@@ -138,9 +153,6 @@ func loadTheme(c config.Colors) (*theme, error) {
 	t.TimeDim = lipgloss.NewStyle().Foreground(t.Dim)
 	t.HelpDim = lipgloss.NewStyle().Foreground(t.Dim)
 
-	t.TopBar = lipgloss.NewStyle().
-		Foreground(t.Text).
-		Background(t.Background)
 	t.Border = lipgloss.NewStyle().Foreground(t.Borders)
 	t.BorderActive = lipgloss.NewStyle().Foreground(t.Borders).Bold(true)
 	t.SectionTitle = lipgloss.NewStyle().Foreground(t.ListHeader)
@@ -155,6 +167,38 @@ func loadTheme(c config.Colors) (*theme, error) {
 		Foreground(t.InputText).
 		Background(t.InputBackground)
 	return t, nil
+}
+
+// mergePalette layers the user's own color keys over a preset. AutoContrast is
+// always the user's choice: a preset never forces adjustments on or off.
+func mergePalette(base, user config.Colors, overrides map[string]bool) config.Colors {
+	base.AutoContrast = user.AutoContrast
+	if len(overrides) == 0 {
+		return base
+	}
+	set := func(key, value string, dst *string) {
+		// An empty value means the key was present but unparsable (e.g. an
+		// unquoted hex that go-ini read as a comment); keep the preset entry
+		// rather than failing startup.
+		if overrides[key] && strings.TrimSpace(value) != "" {
+			*dst = value
+		}
+	}
+	set("background", user.Background, &base.Background)
+	set("text", user.Text, &base.Text)
+	set("forwarded_text", user.ForwardedText, &base.ForwardedText)
+	set("list_header", user.ListHeader, &base.ListHeader)
+	set("list_contact", user.ListContact, &base.ListContact)
+	set("list_group", user.ListGroup, &base.ListGroup)
+	set("chat_contact", user.ChatContact, &base.ChatContact)
+	set("chat_me", user.ChatMe, &base.ChatMe)
+	set("borders", user.Borders, &base.Borders)
+	set("input_background", user.InputBackground, &base.InputBackground)
+	set("input_text", user.InputText, &base.InputText)
+	set("unread_count", user.UnreadCount, &base.UnreadCount)
+	set("positive", user.Positive, &base.Positive)
+	set("negative", user.Negative, &base.Negative)
+	return base
 }
 
 // applyContrast raises every foreground color to a readable ratio against the

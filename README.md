@@ -249,6 +249,7 @@ The file is auto-created on first run with sensible defaults. Run `/help` inside
 
 | Key | Default | Description |
 |-----|---------|-------------|
+| `theme` | `dark` | Preset to start from: `dark`, `light`, `classic` or `mono` (see below) |
 | `background` | `black` | Main background color (set this to match your terminal) |
 | `text` | `lightgray` | Default text color |
 | `forwarded_text` | `mediumpurple` | Forwarded message indicator |
@@ -271,6 +272,26 @@ available name.
 
 > **Hex values must be quoted** — `text = "#c8d0da"` — because `#` starts an
 > INI comment. An unquoted hex value is silently ignored and the default is used.
+
+### Themes
+
+`theme` picks a built-in palette, and any color key you write in `[colors]`
+overrides it — so `theme = mono` with `chat_me = red` gives you a greyscale UI
+with red for your own messages. Keys you leave out follow the preset.
+
+| Preset | Look |
+|--------|------|
+| `dark` | Cool tones for dark terminals (the default palette) |
+| `light` | Dark-on-white for light terminals |
+| `classic` | The pre-1.3 ANSI palette, automatically lifted to pass the contrast floor |
+| `mono` | Greyscale, no colour at all |
+
+Run `/theme` in-app to browse them: the highlight previews each palette on the
+whole UI, `Enter` applies it for the session and `Esc` puts the previous one
+back. Nothing is written to disk — copy the name into `theme = …` to keep it.
+
+Presets assume your terminal background matches (`light` wants a light
+terminal); whatscli does not paint its own background.
 
 Older configs use tcell's basic names, which are the *dark* tones: `blue` is
 `#0000ff` (2.4:1 on black) and `purple` is `#800080` (2.2:1), both well below the

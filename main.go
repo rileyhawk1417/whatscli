@@ -24,7 +24,7 @@ func main() {
 		return
 	}
 
-	th, err := loadTheme(*config.Config.Colors)
+	th, err := loadThemeWith(*config.Config.Colors, config.ColorKeysSet)
 	if err != nil {
 		fmt.Printf("Failed to load colors: %v\n", err)
 		return
@@ -35,7 +35,7 @@ func main() {
 	ctx = &AppContext{Bridge: &uiBridge{}}
 	ctx.SessionManager = &messages.SessionManager{}
 	ctx.SessionManager.SetDebug(*debugMode)
-	ctx.UiHandler = UiHandler{bridge: ctx.Bridge, th: th}
+	ctx.UiHandler = UiHandler{bridge: ctx.Bridge}
 
 	model := newUIModel(th, ctx.SessionManager, keys)
 	if note := th.contrastNotice(); note != "" {

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"os/user"
+	"strings"
 
 	"github.com/adrg/xdg"
 	"gopkg.in/ini.v1"
@@ -71,7 +72,16 @@ type Colors struct {
 	// AutoContrast raises colors that would be unreadable on the configured
 	// background; set it to false to keep the exact configured values.
 	AutoContrast bool
+	// Theme selects a built-in palette by name. Individual color keys in this
+	// section still win over the preset, so a theme can be adjusted in place.
+	// Empty means "only use the keys above".
+	Theme string
 }
+
+// ColorKeysSet records which color keys the config file actually contains, so
+// a `theme` preset can fill in the rest without silently overwriting values the
+// user wrote by hand. Filled by InitConfig.
+var ColorKeysSet = map[string]bool{}
 
 var Config = IniFile{
 	&General{
@@ -124,6 +134,10 @@ var Config = IniFile{
 		Positive:        "darkseagreen",
 		Negative:        "lightcoral",
 		AutoContrast:    true,
+		// The preset matching the defaults above. Presets only fill in keys the
+		// config file does not set, so naming one here does not override an
+		// existing config's own values.
+		Theme: "dark",
 	},
 }
 
@@ -146,6 +160,7 @@ func InitConfig() error {
 			}
 			if section, err := cfg.GetSection("colors"); err == nil {
 				section.MapTo(&Config.Colors)
+				ColorKeysSet = colorKeys(section)
 			}
 		} else {
 			cfg = ini.Empty()
@@ -157,6 +172,17 @@ func InitConfig() error {
 		}
 	}
 	return err
+}
+
+// colorKeys returns the lowercased names of the keys present in the [colors]
+// section. MapTo cannot tell "absent" from "set to the default value", so the
+// theme presets need this to know which entries the user actually wrote.
+func colorKeys(section *ini.Section) map[string]bool {
+	keys := make(map[string]bool, len(section.Keys()))
+	for _, key := range section.KeyStrings() {
+		keys[strings.ToLower(key)] = true
+	}
+	return keys
 }
 
 func GetConfigFilePath() string {

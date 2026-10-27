@@ -43,6 +43,7 @@ func helpText(th *theme) string {
 	line(helpLine(th, "Up/Down", "Scroll Chats/History"))
 	line(helpLine(th, km.SwitchPanels, "Switch Panel"))
 	line(helpLine(th, km.FocusMessages, "Focus Messages"))
+	line(helpLine(th, cmdPrefix+"theme [name]", "Change Theme ("+themeHint()+")"))
 	line(helpLine(th, "Ctrl+p", "Toggle Mouse"))
 	line("")
 
@@ -88,6 +89,16 @@ func helpText(th *theme) string {
 	line("Config: " + config.GetConfigFilePath())
 	line("Verify: " + VERSION)
 	return b.String()
+}
+
+// themeHint lists the preset names for the help screen, "custom" included.
+func themeHint() string {
+	choices := themeChoices()
+	names := make([]string, 0, len(choices))
+	for _, c := range choices {
+		names = append(names, c.Name)
+	}
+	return strings.Join(names, ", ")
 }
 
 // statusBarText renders the top bar: product name on the left, session status on

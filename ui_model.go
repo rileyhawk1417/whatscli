@@ -60,6 +60,13 @@ type uiModel struct {
 	currentChat  messages.Chat
 	mouseEnabled bool
 
+	// Palette bookkeeping. baseColors is the [colors] section as loaded from
+	// the config file; themeName is the preset currently in effect ("" = the
+	// config palette). The /theme selector only changes these in memory.
+	baseColors config.Colors
+	themeName  string
+	picker     *themePicker
+
 	sm   *messages.SessionManager
 	prog *tea.Program
 }
@@ -79,13 +86,15 @@ func newUIModel(th *theme, sm *messages.SessionManager, keys keyMap) uiModel {
 	ti.Cursor.TextStyle = th.InputTextStyle
 
 	return uiModel{
-		th:    th,
-		side:  newSidebar(batchSize),
-		msgs:  newMessagesPane(th),
-		input: ti,
-		keys:  keys,
-		focus: focusInput,
-		sm:    sm,
+		th:         th,
+		side:       newSidebar(batchSize),
+		msgs:       newMessagesPane(th),
+		input:      ti,
+		keys:       keys,
+		focus:      focusInput,
+		sm:         sm,
+		baseColors: *config.Config.Colors,
+		themeName:  strings.ToLower(strings.TrimSpace(config.Config.Colors.Theme)),
 		statusInfo: messages.SessionStatus{
 			Connected: false,
 		},
@@ -113,9 +122,13 @@ type (
 		attempt int
 		timeout int
 	}
-	msgClear     struct{}
-	msgQuit      struct{}
-	msgOpenFile  struct{ path string }
+	msgClear    struct{}
+	msgQuit     struct{}
+	msgOpenFile struct{ path string }
+	// msgHelp and msgColorList are rendered in the model rather than in the
+	// backend handler, so they follow a runtime theme change.
+	msgHelp      struct{}
+	msgColorList struct{}
 	msgImageText struct {
 		text string
 		err  error
@@ -183,6 +196,14 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.msgs.addText(helpText(m.th), m.th)
 		return m, nil
 
+	case msgHelp:
+		m.msgs.addStyled(helpText(m.th), true)
+		return m, nil
+
+	case msgColorList:
+		m.msgs.addStyled(strings.Join(m.th.colorListLines(), "\n"), true)
+		return m, nil
+
 	case msgQuit:
 		return m, tea.Quit
 
@@ -240,8 +261,13 @@ func (m *uiModel) resize(w, h int) {
 // ---- key handling ----------------------------------------------------------
 
 // handleKey dispatches keystrokes. Config bindings win over widget handling,
-// which matches the old tview app-level input capture order.
+// which matches the old tview app-level input capture order. The theme selector,
+// when open, takes every key so nothing leaks to the panes behind it.
 func (m uiModel) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.picker != nil {
+		return m.handlePickerKey(k)
+	}
+
 	key := k.String()
 
 	if a := m.keys.lookup(key, m.focus); a != actNone {
@@ -302,6 +328,9 @@ func (m uiModel) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 // after the user presses Ctrl+p (decision D4), so terminal text selection keeps
 // working by default.
 func (m uiModel) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	if m.picker != nil {
+		return m, nil // the selector is keyboard-only so clicks cannot hit the panes
+	}
 	switch msg.Button {
 	case tea.MouseButtonWheelUp:
 		m.msgs.vp.ScrollUp(3)
@@ -484,6 +513,10 @@ func (m uiModel) submitInput() (tea.Model, tea.Cmd) {
 		if len(fields) > 1 {
 			params = fields[1:]
 		}
+		// The theme lives in the UI model, not the backend registry.
+		if name == "theme" || name == "themes" {
+			return m.handleThemeCommand(params), nil
+		}
 		return m, m.sendCommand(name, params)
 	}
 
@@ -492,6 +525,119 @@ func (m uiModel) submitInput() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, m.sendCommand("send", []string{m.currentChat.Id, value})
+}
+
+// ---- themes ----------------------------------------------------------------
+
+// handleThemeCommand handles /theme. With no argument it opens the selector;
+// with one it applies that preset directly.
+func (m uiModel) handleThemeCommand(params []string) uiModel {
+	if len(params) == 0 {
+		m.picker = newThemePicker(m.themeName)
+		return m
+	}
+	return m.selectTheme(params[0])
+}
+
+// selectTheme applies a preset and reports the result in the message pane.
+func (m uiModel) selectTheme(name string) uiModel {
+	if err := m.applyThemeName(name); err != nil {
+		m.msgs.addText(errorText(m.th, err), m.th)
+		return m
+	}
+	label := resolveThemeName(m.themeName)
+	line := "theme: " + label
+	if m.themeName != "" && m.themeName != strings.ToLower(strings.TrimSpace(m.baseColors.Theme)) {
+		line += fmt.Sprintf(" (set [colors] theme = %s to keep it)", m.themeName)
+	}
+	m.msgs.addText(line, m.th)
+	return m
+}
+
+// previewTheme applies a preset for the selector preview and swallows errors.
+func (m *uiModel) previewTheme(name string) {
+	if err := m.applyThemeName(name); err != nil {
+		m.msgs.addText(errorText(m.th, err), m.th)
+	}
+}
+
+// handlePickerKey drives the /theme overlay: arrows preview live, Enter keeps,
+// Esc restores whatever was active when the selector opened.
+func (m uiModel) handlePickerKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	p := m.picker
+	switch k.String() {
+	case "up", "k", "ctrl+u", "shift+tab":
+		if name, moved := p.move(-1); moved {
+			m.previewTheme(name)
+		}
+	case "down", "j", "ctrl+d", "tab":
+		if name, moved := p.move(1); moved {
+			m.previewTheme(name)
+		}
+	case "home", "g":
+		if name, moved := p.move(-len(p.choices)); moved {
+			m.previewTheme(name)
+		}
+	case "end", "G":
+		if name, moved := p.move(len(p.choices)); moved {
+			m.previewTheme(name)
+		}
+	case "enter":
+		name := p.selected()
+		m.picker = nil
+		return m.selectTheme(name), nil
+	case "esc", "q", "ctrl+c":
+		origin := p.origin
+		m.picker = nil
+		m.previewTheme(origin)
+	}
+	return m, nil
+}
+
+// applyThemeName switches the whole UI to a preset; the empty name restores the
+// palette from the config file. Nothing is written to disk.
+func (m *uiModel) applyThemeName(name string) error {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == customThemeName {
+		name = ""
+	}
+
+	var (
+		th  *theme
+		err error
+	)
+	if name == "" {
+		// Rebuild exactly what startup produced, including any color keys that
+		// fine-tune the configured preset.
+		th, err = loadThemeWith(m.baseColors, config.ColorKeysSet)
+	} else {
+		preset, ok := findTheme(name)
+		if !ok {
+			return fmt.Errorf("unknown theme %q (available: %s)", name, strings.Join(themeNames(), ", "))
+		}
+		palette := mergePalette(preset.Colors, m.baseColors, config.ColorKeysSet)
+		palette.Theme = "" // the palette now holds the preset values
+		th, err = loadThemeWith(palette, nil)
+	}
+	if err != nil {
+		return err
+	}
+
+	m.themeName = name
+	m.th = th
+	m.retint()
+	return nil
+}
+
+// retint re-renders everything that baked a color into a string.
+func (m *uiModel) retint() {
+	m.msgs.retint(m.th)
+	ti := m.input
+	ti.PromptStyle = m.th.InputTextStyle
+	ti.TextStyle = m.th.InputTextStyle
+	ti.Cursor.Style = m.th.InputTextStyle.Reverse(true)
+	ti.Cursor.TextStyle = m.th.InputTextStyle
+	m.input = ti
 }
 
 // ---- sidebar navigation ----------------------------------------------------
@@ -695,7 +841,11 @@ func (m uiModel) View() string {
 	lines = append(lines, th.Border.Render("│")+sideLine(mainH+1)+
 		th.Border.Render("│")+m.renderInput(msgW)+th.Border.Render("│"))
 	lines = append(lines, frameBottom(width, th))
-	return strings.Join(lines, "\n")
+	frame := strings.Join(lines, "\n")
+	if m.picker != nil {
+		return overlayCenter(frame, m.picker.render(th), width, m.height)
+	}
+	return frame
 }
 
 // renderInput renders the input line with the configured input background

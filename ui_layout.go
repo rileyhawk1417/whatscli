@@ -35,6 +35,47 @@ func padTo(s string, w int) string {
 	return s
 }
 
+// overlayCenter draws box (a multi-line ANSI block) centered over base (the
+// already composed screen). Rows keep their width, so the frame behind the box
+// stays intact; the box is clipped when the terminal is smaller than it.
+func overlayCenter(base, box string, width, height int) string {
+	if box == "" {
+		return base
+	}
+	lines := strings.Split(base, "\n")
+	boxLines := strings.Split(box, "\n")
+	if width <= 0 || height <= 0 {
+		return base
+	}
+
+	boxW, boxH := 0, len(boxLines)
+	for _, l := range boxLines {
+		boxW = max(boxW, lipgloss.Width(l))
+	}
+	if boxH > height {
+		boxLines = boxLines[:height]
+		boxH = height
+	}
+	x := max(0, (width-boxW)/2)
+	y := max(0, (height-boxH)/2)
+
+	for i, bl := range boxLines {
+		row := y + i
+		if row < 0 || row >= len(lines) {
+			continue
+		}
+		src := lines[row]
+		srcW := lipgloss.Width(src)
+		left := ansi.Cut(src, 0, x)
+		if w := lipgloss.Width(left); w < x {
+			left += strings.Repeat(" ", x-w)
+		}
+		right := ansi.Cut(src, x+boxW, srcW)
+		lines[row] = left + fit(bl, boxW) + right
+	}
+	return strings.Join(lines, "\n")
+}
+
 // frameTop renders "┌────┐".
 func frameTop(w int, th *theme) string {
 	if w < 2 {

@@ -16,10 +16,21 @@ import (
 	"github.com/normen/whatscli/messages"
 )
 
+// blockKind says how a block is (re-)rendered when the theme changes.
+type blockKind int
+
+const (
+	blockMessage blockKind = iota // chat message, rendered from entries[msg]
+	blockText                     // free-form output, tinted with theme.Text
+	blockANSI                     // pre-rendered passthrough (QR, images)
+)
+
 // paneBlock is one logical piece of pane content: a message, a line of
 // free-form text, or a pre-rendered ANSI block (QR code, image output).
 type paneBlock struct {
-	styled string // may contain newlines
+	kind   blockKind
+	text   string // raw line for blockText, rendered bytes for blockANSI
+	styled string // cached rendering; refreshed by messagesPane.retint
 	msg    int    // index into entries, -1 for non-selectable output
 	wrap   bool   // false for ANSI passthrough (decision D6)
 }
@@ -120,7 +131,12 @@ func (p *messagesPane) appendMessage(msg messages.Message, th *theme) bool {
 	}
 	idx := len(p.entries)
 	p.entries = append(p.entries, msg)
-	p.blocks = append(p.blocks, paneBlock{styled: renderMessage(&msg, th), msg: idx, wrap: true})
+	p.blocks = append(p.blocks, paneBlock{
+		kind:   blockMessage,
+		styled: renderMessage(&msg, th),
+		msg:    idx,
+		wrap:   true,
+	})
 	return true
 }
 
@@ -129,7 +145,13 @@ func (p *messagesPane) addText(text string, th *theme) {
 	atBottom := p.atBottom()
 	style := lipgloss.NewStyle().Foreground(p.th.Text)
 	for _, raw := range strings.Split(text, "\n") {
-		p.blocks = append(p.blocks, paneBlock{styled: style.Render(raw), msg: -1, wrap: true})
+		p.blocks = append(p.blocks, paneBlock{
+			kind:   blockText,
+			text:   raw,
+			styled: style.Render(raw),
+			msg:    -1,
+			wrap:   true,
+		})
 	}
 	p.refresh()
 	if atBottom {
@@ -141,7 +163,7 @@ func (p *messagesPane) addText(text string, th *theme) {
 // image output must never be re-flowed (decision D6).
 func (p *messagesPane) addStyled(text string, wrap bool) {
 	atBottom := p.atBottom()
-	p.blocks = append(p.blocks, paneBlock{styled: text, msg: -1, wrap: wrap})
+	p.blocks = append(p.blocks, paneBlock{kind: blockANSI, text: text, msg: -1, wrap: wrap})
 	p.refresh()
 	if atBottom {
 		p.vp.GotoBottom()
@@ -160,6 +182,32 @@ func (p *messagesPane) atBottom() bool {
 	return len(p.lines) <= p.height || p.vp.YOffset >= len(p.lines)-p.height
 }
 
+// retint re-renders every block in a new theme, keeping the scroll position and
+// selection. ANSI blocks (QR codes, image output) are left untouched because
+// their colors come from the external tool.
+func (p *messagesPane) retint(th *theme) {
+	atBottom := p.atBottom()
+	off := p.vp.YOffset
+	p.th = th
+	style := lipgloss.NewStyle().Foreground(th.Text)
+	for i := range p.blocks {
+		switch p.blocks[i].kind {
+		case blockMessage:
+			if idx := p.blocks[i].msg; idx >= 0 && idx < len(p.entries) {
+				p.blocks[i].styled = renderMessage(&p.entries[idx], th)
+			}
+		case blockText:
+			p.blocks[i].styled = style.Render(p.blocks[i].text)
+		}
+	}
+	p.refresh()
+	if atBottom {
+		p.vp.GotoBottom()
+	} else {
+		p.vp.SetYOffset(off)
+	}
+}
+
 // refresh re-flows every block into display lines, then rebuilds the viewport
 // content with the current selection applied.
 func (p *messagesPane) refresh() {
@@ -173,13 +221,17 @@ func (p *messagesPane) refresh() {
 			}
 			p.start[b.msg] = len(p.lines)
 		}
-		var raw []string
-		if b.wrap && p.width > 0 {
-			raw = wrapText(b.styled, p.width)
-		} else {
-			raw = strings.Split(b.styled, "\n")
+		block := b.styled
+		if b.kind == blockANSI {
+			block = b.text
 		}
-		for _, line := range raw {
+		var lines []string
+		if b.wrap && p.width > 0 {
+			lines = wrapText(block, p.width)
+		} else {
+			lines = strings.Split(block, "\n")
+		}
+		for _, line := range lines {
 			p.lines = append(p.lines, paneLine{styled: line, plain: ansi.Strip(line), msg: b.msg})
 		}
 	}

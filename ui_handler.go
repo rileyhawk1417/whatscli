@@ -1,8 +1,6 @@
 package main
 
 import (
-	"strings"
-
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/normen/whatscli/messages"
 	"github.com/skratchdot/open-golang/open"
@@ -24,10 +22,11 @@ func (b *uiBridge) send(msg tea.Msg) {
 
 // UiHandler implements messages.UiMessageHandler. Every method translates a
 // backend callback into a bubbletea message; no function here renders or
-// mutates UI state directly.
+// mutates UI state directly. Rendering (even of the help text and the colour
+// list) happens in the model, so a theme change applies to output the backend
+// requested afterwards.
 type UiHandler struct {
 	bridge *uiBridge
-	th     *theme
 }
 
 func (u UiHandler) NewMessage(msg messages.Message) {
@@ -75,8 +74,7 @@ func (u UiHandler) OpenFile(path string) {
 }
 
 func (u UiHandler) ShowColorList() {
-	lines := u.th.colorListLines()
-	u.bridge.send(msgStyled{text: strings.Join(lines, "\n"), wrap: true})
+	u.bridge.send(msgColorList{})
 }
 
 func (u UiHandler) Clear() {
@@ -84,11 +82,11 @@ func (u UiHandler) Clear() {
 }
 
 func (u UiHandler) PrintHelp() {
-	u.bridge.send(msgStyled{text: helpText(u.th), wrap: true})
+	u.bridge.send(msgHelp{})
 }
 
 func (u UiHandler) PrintCommands() {
-	u.bridge.send(msgStyled{text: helpText(u.th), wrap: true})
+	u.bridge.send(msgHelp{})
 }
 
 func (u UiHandler) Quit() {

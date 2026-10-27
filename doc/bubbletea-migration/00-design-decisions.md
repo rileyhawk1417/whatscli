@@ -149,6 +149,43 @@ amber headers, muted blue senders, grey borders). Existing configs keep their
 values; only the unreadable ones are lifted. Code lives in `ui_contrast.go`
 (math + xterm→RGB) and `theme.applyContrast` (`ui_theme.go`).
 
+## D9. Themes: presets plus overrides
+
+Hard-coded palette constants were the last thing keeping the migration from
+being configurable end to end, so the `[colors]` section gained a `theme` key
+backed by four built-in palettes (`ui_themes.go`): `dark` (the shipped
+defaults), `light` (dark-on-white), `classic` (the pre-1.3 ANSI palette, which
+the contrast floor lifts) and `mono` (greyscale). The rules:
+
+1. **A preset fills, the file wins.** `loadThemeWith` resolves the preset and
+   then layers the keys the config file *actually contains* over it —
+   `config.ColorKeysSet` records that at parse time, because `MapTo` cannot
+   distinguish "absent" from "set to the default". `theme = mono` plus
+   `chat_me = red` therefore means a greyscale UI with red for your own
+   messages. Because of the same rule an old config that still holds all
+   fourteen keys keeps its exact palette even though `theme` defaults to
+   `dark`.
+2. **The picker is a session-only change.** `/theme` (with no argument) opens
+   an overlay listing `custom` + the presets; arrow keys re-render the entire
+   UI — including already-scrolled message history and free-form output, via
+   `messagesPane.retint` / `uiModel.retint` — while `Enter` keeps the choice
+   and `Esc` restores the palette that was active before. Nothing is written to
+   disk, and ANSI pass-through blocks (QR codes, images) are never re-tinted,
+   so a preview cannot corrupt them.
+3. **`custom` means "exactly what startup produced".** It re-resolves
+   `[colors]` the same way `main` did, which makes the row the baseline to
+   compare a preset against and the escape hatch after an abort.
+4. **Presets still obey `auto_contrast`.** The user's setting is carried across
+   every switch, and the shipped presets are chosen so that the floor has
+   nothing to lift. The `classic` preset exists precisely so the lifted legacy
+   palette is still available under a name.
+
+Known limitation, documented in the README: whatscli does not paint its own
+background, so the frame and message area show the terminal's. The `light`
+preset therefore assumes a light terminal, which is also why the preset is
+described rather than auto-detected — `theme` stays explicit so a user on a
+light terminal never gets dark-on-dark after an upgrade.
+
 ## Version pins (task 01)
 
 | Module | Version | Why |

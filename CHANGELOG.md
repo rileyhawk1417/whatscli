@@ -32,6 +32,11 @@ All notable changes to the WhatsApp CLI application will be documented in this f
   which sat at 2.4:1 and 2.2:1 contrast on a black background.
 
 ### Added
+- Built-in colour themes: `theme` in the `[colors]` section selects `dark`
+  (default), `light`, `classic` or `mono`, and individual colour keys still
+  override the preset. `/theme` opens a selector that previews each palette on
+  the whole UI, `Enter` applies it for the session and `Esc` restores the
+  previous one.
 - `auto_contrast` in the `[colors]` section (on by default): foreground colors
   that would fall below the 4.5:1 WCAG contrast ratio against `background` are
   lightened along their own hue instead of rendering nearly invisible. Legacy
