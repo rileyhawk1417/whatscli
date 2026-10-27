@@ -80,8 +80,27 @@ Run against a real account (`whatscli --debug` for protocol logs):
 | `Ctrl+p` prints the state notice and toggles mouse reporting | ✅ |
 | `Ctrl+q` disconnects, leaves the alt screen and restores the cursor | ✅ |
 | Resize while running (SIGWINCH) | ✅ 110x30 → 80x24 frame stays rectangular |
-| QR code / image passthrough | ⚠️ needs a live login (no network on the build box); covered by `TestANSIPassthroughIsNotRewrapped` |
+| QR code renders from `UpdateQR` (21 block rows, ANSI passthrough) | ✅ `pty_qa.py` against a live login |
+| Pairing failure surfaces as one error line, status stays offline | ✅ `--debug` run + `TestQRChannelTerminalEventReturnsError` |
+| Image passthrough (`show` command) | ⚠️ needs a session with an attachment; covered by `TestANSIPassthroughIsNotRewrapped` |
 | Everything requiring a WhatsApp session | ⚠️ pending a manual run |
+
+## Login blockers found while smoke testing
+
+Two problems made the first live run look like "connecting.. forever". Neither
+was a rendering bug:
+
+1. `whatsmeow` was pinned to a build that advertises web client version
+   `2.3000.1033287297`; WhatsApp answers `<failure location="odn" reason="405"/>`
+   and closes the pairing channel with `err-client-outdated` before any QR code
+   is sent. Fixed by updating the dependency (`b601640`).
+2. `loginWithQRCode` ignored those terminal events and then spun on the closed
+   channel, so the failure never reached the UI. Fixed in `2b82022`, which also
+   stops `runManager` from flipping the status bar back to "online" right after a
+   rejected handshake.
+
+The QR block is ~21 rows tall, so the login screen needs a terminal at least
+~30 rows high (same limitation as the tview UI) — below that the pane clips it.
 
 ## Wrap-up
 - [x] README/CLAUDE.md updated for the bubbletea stack.

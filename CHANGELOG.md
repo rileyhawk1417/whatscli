@@ -4,6 +4,12 @@ All notable changes to the WhatsApp CLI application will be documented in this f
 
 ## [Unreleased]
 
+### Fixed
+- QR login works again: `whatsmeow` now advertises a current web client version,
+  so WhatsApp no longer rejects the handshake with a 405 before sending a code.
+- Pairing failures are reported instead of looping silently on a closed channel,
+  and a rejected handshake no longer flips the status bar to "online".
+
 ### Changed
 - The TUI now runs on [Bubbletea](https://github.com/charmbracelet/bubbletea),
   [Bubbles](https://github.com/charmbracelet/bubbles) and
