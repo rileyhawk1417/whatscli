@@ -45,11 +45,11 @@ func formatRelativeTime(timestamp int64) string {
 	case diff < 7*24*time.Hour:
 		return t.Weekday().String()[:3] // "Mon", "Tue", etc.
 	default:
-		// Same year → "Jan 02"; different year → "Jan 02, 06"
-		if t.Year() == now.Year() {
-			return t.Format("Jan 02")
-		}
-		return t.Format("Jan 02, 06")
+		// "Jan 02" for everything older. A year suffix ("Sep 13, 24") is 10
+		// cells and truncates to "Sep 13, 20" at the default 30-cell sidebar,
+		// which is worse than the ambiguity (plan item C2); the pane shows the
+		// full date on the message header anyway.
+		return t.Format("Jan 02")
 	}
 }
 

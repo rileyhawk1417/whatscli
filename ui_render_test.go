@@ -91,10 +91,12 @@ func TestFormatRelativeTime_OlderSameYear(t *testing.T) {
 }
 
 func TestFormatRelativeTime_DifferentYear(t *testing.T) {
+	// C2: the year was dropped so old timestamps fit the 30-cell sidebar;
+	// old dates render like same-year ones ("Oct 28").
 	target := time.Now().AddDate(-1, 0, 0)
 	ts := target.Unix()
 	got := formatRelativeTime(ts)
-	expected := target.Format("Jan 02, 06")
+	expected := target.Format("Jan 02")
 	if got != expected {
 		t.Errorf("expected %q, got %q", expected, got)
 	}
