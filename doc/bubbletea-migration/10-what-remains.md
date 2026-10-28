@@ -139,6 +139,7 @@ Still open if wanted:
 | # | Bug | Status |
 |---|-----|--------|
 | B1 | **Cannot type or navigate on the QR/login screen.** User report (2026-10-27): input untypeable, focus jumping. Root cause: the QR countdown calls `UpdateQR` every second and `showQR` treated every tick as a full screen rebuild, adding `m.focus = focusInput` + `m.input.SetValue("")` — the pre-migration `UpdateQR` only rewrote the text area. Fixed in the same session; rules in the "Post-milestone fix" note in `00-design-decisions.md`, regression test `TestShowQRCountdownKeepsInput` | ✅ fixed |
+| B2 | **`/theme` picker does nothing on a fully specified config.** User report (2026-10-28, screenshot): cursor moves over `catppuccin` but the screen keeps the startup palette. Root cause: `applyThemeName` merged `config.ColorKeysSet` overrides back into every picked preset, so a config with all fourteen `[colors]` keys (the user's) produced byte-for-byte the startup palette for every preset; the black-on-black painted background added to the "nothing is happening" impression. Fix `87f1072`: explicit picks build the preset as written, overrides pause (stated in the confirmation line), `custom`/Esc restores; D9 rule 5; tests `TestPresetPickReplacesPaletteWholesale` + `TestFullyOverriddenConfigStillSeesPresets` | ✅ fixed |
 
 ## Suggested order when picking this up
 
