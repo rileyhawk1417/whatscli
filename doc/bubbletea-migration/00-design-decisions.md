@@ -291,3 +291,31 @@ code. Anything a reviewer would otherwise have to reverse-engineer belongs here.
   `colors.<field>: unknown color "…"` is reported at startup.
 - **Notifications.** Untouched — `beeep` still fires from the backend, so
   desktop notifications keep working without the TUI being involved.
+
+## Post-milestone fix: QR countdown must not own the input line
+
+**Bug (reported live, 2026-10-27):** on the QR/login screen you cannot type —
+everything typed is erased within a second, focus jumps back to the input
+constantly, and any help/error output printed next to the QR is wiped each
+tick. Root cause: `handleQRChannel` ticks once per second for the countdown
+and calls `UpdateQR` every tick; the ported `showQR` treated every tick as a
+screen rebuild *and* did `m.focus = focusInput` + `m.input.SetValue("")`.
+The pre-migration `UiHandler.UpdateQR` cleared and reprinted the TView *text
+area* only — the input widget was never touched, so typing survived. The
+`SetValue("" )`/focus-forcing lines in the port were therefore a deviation.
+
+**Fix rules (settled):**
+
+1. `showQR` never mutates `m.input` or `m.focus`, in any branch. The model
+   starts with the input focused, which is the login screen's natural state.
+2. A full rebuild (`clear()` + help + header + QR) happens only when the QR
+   payload or its attempt number changed — the moments the old handler also
+   logically replaced the screen.
+3. A same-QR countdown tick updates only the countdown header line in place
+   (index recorded at build time; falls back to a rebuild if the pane was
+   reorganized). This keeps user-printed output (help, errors) on the login
+   screen alive while the countdown still runs — a deliberate small
+   improvement over the old wipe-per-tick, justified because the new pane is
+   one shared stream instead of a dedicated widget.
+4. Scrolling on the login screen is no longer yanked to the bottom every
+   second; `GotoBottom` happens only when the screen actually rebuilds.

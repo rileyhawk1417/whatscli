@@ -373,3 +373,97 @@ func TestFreeFormOutputFollowsBottom(t *testing.T) {
 		t.Fatalf("YOffset = %d, want 0 (user had scrolled up)", m.msgs.vp.YOffset)
 	}
 }
+
+// The QR countdown fires UpdateQR once a second. Ticks must not wipe the login
+// screen, reset the input or steal focus — otherwise the login screen is
+// untypeable. Regression test for the post-milestone fix in
+// doc/bubbletea-migration/00-design-decisions.md.
+func qrTestModel(t *testing.T) uiModel {
+	t.Helper()
+	sm := &messages.SessionManager{CommandChannel: make(chan messages.Command, 16)}
+	km, err := buildKeyMap(config.Keymap{
+		SwitchPanels:    "Tab",
+		FocusMessages:   "Ctrl+w",
+		FocusInput:      "Ctrl+Space",
+		FocusChats:      "Ctrl+e",
+		Copyuser:        "Ctrl+c",
+		Pasteuser:       "Ctrl+v",
+		CommandBacklog:  "Ctrl+b",
+		CommandRead:     "Ctrl+n",
+		CommandConnect:  "Ctrl+r",
+		CommandQuit:     "Ctrl+q",
+		CommandHelp:     "Ctrl+?",
+		MessageDownload: "d",
+		MessageOpen:     "o",
+		MessageShow:     "s",
+		MessageUrl:      "u",
+		MessageInfo:     "i",
+		MessageRevoke:   "r",
+	})
+	if err != nil {
+		t.Fatalf("buildKeyMap: %v", err)
+	}
+	m := newUIModel(testTheme(), sm, km)
+	m.resize(80, 24)
+	return m
+}
+
+func TestShowQRCountdownKeepsInput(t *testing.T) {
+	m := qrTestModel(t)
+
+	m.input.SetValue("typed by the user")
+	m.showQR("QR-PAYLOAD", 1, 20)
+	if m.qrRendered != "QR-PAYLOAD" || m.qrHeaderIdx == 0 {
+		t.Fatalf("first render: qrRendered=%q qrHeaderIdx=%d", m.qrRendered, m.qrHeaderIdx)
+	}
+	blocksAfterBuild := len(m.msgs.blocks)
+	inputValue, focus := m.input.Value(), m.focus
+
+	// Tab away, then let three countdown ticks fire.
+	upd, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyTab})
+	m = upd.(uiModel)
+	if m.focus == focus {
+		t.Fatalf("tab did not move focus away from the input")
+	}
+	for i := 19; i >= 17; i-- {
+		m.showQR("QR-PAYLOAD", 1, i)
+		if m.input.Value() != inputValue {
+			t.Fatalf("countdown tick erased the input (%d)", i)
+		}
+		if m.focus != upd.(uiModel).focus {
+			t.Fatalf("countdown tick changed focus (%d)", i)
+		}
+	}
+	if len(m.msgs.blocks) != blocksAfterBuild {
+		t.Fatalf("countdown ticks changed block count: got %d, want %d", len(m.msgs.blocks), blocksAfterBuild)
+	}
+	// The countdown line must actually count down.
+	if line := m.msgs.blocks[m.qrHeaderIdx].text; !strings.Contains(line, "in 17s") {
+		t.Fatalf("countdown line not updated in place: %q", line)
+	}
+
+	// User-printed content between QR codes must survive the next tick...
+	m.msgs.addText("printed after the QR screen", m.th)
+	m.showQR("QR-PAYLOAD", 1, 16)
+	if got := m.msgs.blocks[len(m.msgs.blocks)-1].text; got != "printed after the QR screen" {
+		t.Fatalf("tick wiped user content: last block is %q", got)
+	}
+
+	// ...but a fresh QR code rebuilds the screen like the old handler did.
+	m.input.SetValue("x")
+	m.showQR("QR-PAYLOAD-2", 2, 20)
+	if m.qrRendered != "QR-PAYLOAD-2" {
+		t.Fatalf("new QR code not rebuilt (qrRendered=%q)", m.qrRendered)
+	}
+	if len(m.msgs.blocks) != blocksAfterBuild {
+		t.Fatalf("new QR code screen not rebuilt: %d blocks, want %d (cleared+rebuilt)", len(m.msgs.blocks), blocksAfterBuild)
+	}
+	for _, b := range m.msgs.blocks {
+		if b.kind == blockText && strings.Contains(b.text, "printed after the QR screen") {
+			t.Fatalf("new QR code rebuild kept user-printed text")
+		}
+	}
+	if m.qrHeaderIdx >= len(m.msgs.blocks) {
+		t.Fatalf("qrHeaderIdx out of range: %d >= %d", m.qrHeaderIdx, len(m.msgs.blocks))
+	}
+}

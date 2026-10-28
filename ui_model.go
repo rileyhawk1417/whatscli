@@ -67,6 +67,14 @@ type uiModel struct {
 	themeName  string
 	picker     *themePicker
 
+	// Login screen bookkeeping. showQR runs once a second (countdown tick),
+	// so it records what it last rendered: the whole screen is rebuilt only
+	// when the QR payload/attempt changes, and a countdown tick updates just
+	// the header line. See the post-milestone fix note in
+	// doc/bubbletea-migration/00-design-decisions.md.
+	qrRendered  string // QR payload currently on screen ("" = none yet)
+	qrHeaderIdx int    // block index of the countdown header, only valid after first render
+
 	sm   *messages.SessionManager
 	prog *tea.Program
 }
@@ -762,23 +770,50 @@ func (m *uiModel) queueCommand(name string, params []string) {
 
 // ---- QR --------------------------------------------------------------------
 
-// showQR rebuilds the login screen: help text, header, and the QR block. It is a
-// port of UiHandler.UpdateQR.
+// showQR updates the login screen: help text, header (with live countdown),
+// and the QR block. It is a port of UiHandler.UpdateQR, with two behaviour
+// fixes that restore the pre-migration semantics — see the post-milestone
+// fix note in doc/bubbletea-migration/00-design-decisions.md:
+//
+//   - The input line and focus are never touched. The old handler rewrote only
+//     the text area, so typing survived each one-second countdown tick; the
+//     port used to clear the input and force focus back every tick, which made
+//     the login screen untypeable.
+//   - The whole screen is rebuilt only when the QR payload or its attempt
+//     number changes. A same-QR countdown tick updates just the countdown
+//     line, so help/error output printed beside the QR is not wiped every
+//     second, and the viewport is not yanked to the bottom.
 func (m *uiModel) showQR(qr string, attempt, timeout int) {
-	m.msgs.clear()
-	m.msgs.addText(helpText(m.th), m.th)
-
-	var header string
+	header := ""
 	if timeout > 0 {
 		header = fmt.Sprintf("\n\n=== QR Code Generated (Attempt %d) - Auto-refreshing in %ds ===\n\nScan this with WhatsApp:\n\n", attempt, timeout)
 	} else {
 		header = fmt.Sprintf("\n\n=== QR Code Generated (Attempt %d) - Awaiting new QR code from WhatsApp Server ===\n\nScan this with WhatsApp:\n\n", attempt)
 	}
-	m.msgs.addStyled(header, true)
-	m.msgs.addStyled(qr, false)
-	m.msgs.vp.GotoBottom()
-	m.focus = focusInput
-	m.input.SetValue("")
+
+	if qr != m.qrRendered {
+		// New QR code (or first render): rebuild the login screen, exactly like
+		// the old handler did on a freshly generated code.
+		m.msgs.clear()
+		m.msgs.addText(helpText(m.th), m.th)
+		m.qrHeaderIdx = len(m.msgs.blocks) // where addStyled(header) will land
+		m.qrRendered = qr
+		m.msgs.addStyled(header, true)
+		m.msgs.addStyled(qr, false)
+		m.msgs.vp.GotoBottom()
+		return
+	}
+
+	// Same QR: countdown tick. Update only the header block in place so the
+	// help/error text the user printed stays on screen and the QR stays put.
+	if m.qrHeaderIdx < 0 || m.qrHeaderIdx >= len(m.msgs.blocks) {
+		return // pane was reorganized; nothing safe to patch
+	}
+	b := &m.msgs.blocks[m.qrHeaderIdx]
+	if strings.HasPrefix(b.text, "\n\n=== ") && strings.HasPrefix(header, "\n\n=== ") {
+		b.text = header
+		m.msgs.refresh()
+	}
 }
 
 // ---- commands back to the backend -----------------------------------------

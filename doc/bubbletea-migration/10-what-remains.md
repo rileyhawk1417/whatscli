@@ -112,6 +112,12 @@ Then fold results into the M4 table in `09-testing-and-qa.md` and tick the
   `messages/messages.go`) — documented in task 09; fix in one tiny commit if
   desired, untouched otherwise.
 
+## F. Bugs
+
+| # | Bug | Status |
+|---|-----|--------|
+| B1 | **Cannot type or navigate on the QR/login screen.** User report (2026-10-27): input untypeable, focus jumping. Root cause: the QR countdown calls `UpdateQR` every second and `showQR` treated every tick as a full screen rebuild, adding `m.focus = focusInput` + `m.input.SetValue("")` — the pre-migration `UpdateQR` only rewrote the text area. Fixed in the same session; rules in the "Post-milestone fix" note in `00-design-decisions.md`, regression test `TestShowQRCountdownKeepsInput` | ✅ fixed |
+
 ## Suggested order when picking this up
 
 ```
