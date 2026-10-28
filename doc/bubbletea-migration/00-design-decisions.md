@@ -215,6 +215,36 @@ the end of `View`) covers the whole surface instead:
 Consequence: `background` is now what the user sees, full stop. The README no
 longer tells people to keep the terminal's background in sync.
 
+## D11. Editor-palette presets (ports)
+
+`catppuccin`, `tokyonight` and `solarized` are ports of popular editor
+colourschemes rather than palettes invented for the TUI. Three rules keep the
+ports honest:
+
+1. **Use upstream values, do not approximate them.** Every key comes from the
+   scheme's own palette (Catppuccin Macchiato, Tokyo Night Storm, Solarized
+   Osaka dark). The source files live in `theme-refs/` so a refresh can be
+   diffed against upstream later.
+2. **Map by meaning, not by editor syntax role.** Editor schemes are organised
+   around `Keyword`/`String`/`Comment`; the TUI needs semantic roles. The
+   mapping is: `list_header`/`unread_count` → the scheme's warm accent,
+   `list_contact`/`positive` → its green, `list_group`/`chat_me` → its blue,
+   `chat_contact` → its teal/cyan, `forwarded_text` → its violet/magenta,
+   `negative` → its red, `borders` → the faintest tone that still clears the
+   3:1 graphical floor, `input_background` → a raised surface one step off the
+   background.
+3. **Pick a brighter step instead of relying on auto_contrast.** A preset must
+   render as written, so a colour that fails the floor is replaced by the next
+   step of the same ramp (Osaka's `magenta` `#d23681` at 4.12:1 becomes
+   `#f254a1` at 5.89:1). This is what `TestPresetColorsClearContrastFloor`
+   enforces for every preset except `classic`, which exists precisely to make
+   the lifted legacy palette available under a name.
+
+Consequence for the selector: preset names no longer fit in the old 9-cell
+name column, so `themePicker.render` widened it (and the box) to 11 cells / 50
+inner columns. `themeNames()` still preserves declaration order with `mono`
+last, which is what the picker clamp test asserts.
+
 ## Version pins (task 01)
 
 | Module | Version | Why |

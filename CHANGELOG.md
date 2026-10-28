@@ -40,6 +40,11 @@ All notable changes to the WhatsApp CLI application will be documented in this f
   whole surface, `input_background` the input row) instead of letting the
   terminal's own colours show through, so `theme = light` is legible even on a
   dark terminal.
+- Three editor-derived themes: `catppuccin` (Macchiato, `#24273a`), `tokyonight`
+  (Storm, `#24283b`) and `solarized` (Osaka dark, `#001419`). Each maps the
+  scheme's own roles onto the 14 config keys and uses a brighter step of the
+  same ramp where the upstream choice sat below the 4.5:1 floor, so they need no
+  contrast lifting at load time.
 - `auto_contrast` in the `[colors]` section (on by default): foreground colors
   that would fall below the 4.5:1 WCAG contrast ratio against `background` are
   lightened along their own hue instead of rendering nearly invisible. Legacy

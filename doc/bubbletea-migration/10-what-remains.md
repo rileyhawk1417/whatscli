@@ -102,6 +102,28 @@ Then fold results into the M4 table in `09-testing-and-qa.md` and tick the
    while `theme = dark` is the documented default — skip unless asked.
 4. **Theme preview in the README** — ANSI screenshot block; depends on B4.
 
+### D-note: editor palette ports (done)
+
+`theme-refs/` supplied an Alacritty Catppuccin Macchiato TOML plus pointers to
+`tokyonight.nvim` and `solarized-osaka.nvim`. Those three are now shipped as
+presets (`catppuccin`, `tokyonight`, `solarized`) in `ui_themes.go`, with the
+mapping rules recorded in `00-design-decisions.md` D11 and pinned by
+`TestEditorPresetsMatchUpstreamBases` + the existing
+`TestPresetColorsClearContrastFloor`.
+
+Still open if wanted:
+- The other flavours of the same schemes (`catppuccin-latte/frappe/mocha`,
+  `tokyonight-moon/night/day`). Light variants mostly *fail* the floor (Osaka
+  light has only `fg` above 4.5:1), so each one needs the brighter-ramp-step
+  treatment rather than a straight port. Note `nameW` in
+  `themePicker.render` (11 cells) would need widening again for longer names.
+- `theme = auto`: lipgloss exposes `HasDarkBackground()` (the same OSC 11 probe
+  we already answer) and `AdaptiveColor`, so a preset could resolve to `light`
+  or `dark` from the terminal's own background. Item 3 above, unblocked — see
+  the lipgloss ref.
+- Palette swatches in the picker rows (a 6-cell strip per preset) so the box
+  previews the tones as well as live-previewing them on the UI.
+
 ## E. Housekeeping
 
 - Consolidate `.pi/memory` project categories (`projects/whatscli` vs

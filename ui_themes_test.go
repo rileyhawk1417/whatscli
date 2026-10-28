@@ -86,6 +86,38 @@ func TestBuiltinThemesAreComplete(t *testing.T) {
 	}
 }
 
+// TestEditorPresetsMatchUpstreamBases pins the ports in theme-refs/ to the
+// background and body text of the scheme they were taken from, so a future
+// palette refresh is a deliberate change rather than a silent drift.
+func TestEditorPresetsMatchUpstreamBases(t *testing.T) {
+	for _, tc := range []struct{ name, background, text string }{
+		{"catppuccin", "#24273a", "#cad3f5"}, // Catppuccin Macchiato base/text
+		{"tokyonight", "#24283b", "#c0caf5"}, // Tokyo Night Storm bg/fg
+		{"solarized", "#001419", "#adb7b7"},  // Solarized Osaka bg/base1
+	} {
+		preset, ok := findTheme(tc.name)
+		if !ok {
+			t.Fatalf("preset %q is missing", tc.name)
+		}
+		if preset.Colors.Background != tc.background {
+			t.Errorf("%s background = %q, want %q", tc.name, preset.Colors.Background, tc.background)
+		}
+		if preset.Colors.Text != tc.text {
+			t.Errorf("%s text = %q, want %q", tc.name, preset.Colors.Text, tc.text)
+		}
+	}
+}
+
+// TestPickerFitsEveryPresetName guards the widened name column: a name wider
+// than the column would push the description left and break the box frame.
+func TestPickerFitsEveryPresetName(t *testing.T) {
+	for _, p := range themeChoices() {
+		if len(p.Name) > 11 {
+			t.Errorf("preset %q is %d cells wide; widen themePicker.render's nameW", p.Name, len(p.Name))
+		}
+	}
+}
+
 func TestFindThemeIsCaseInsensitive(t *testing.T) {
 	for _, name := range []string{"dark", "DARK", " Dark "} {
 		if _, ok := findTheme(name); !ok {

@@ -249,7 +249,7 @@ The file is auto-created on first run with sensible defaults. Run `/help` inside
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `theme` | `dark` | Preset to start from: `dark`, `light`, `classic` or `mono` (see below) |
+| `theme` | `dark` | Preset to start from: `dark`, `light`, `catppuccin`, `tokyonight`, `solarized`, `classic` or `mono` (see below) |
 | `background` | `black` | Main background color (set this to match your terminal) |
 | `text` | `lightgray` | Default text color |
 | `forwarded_text` | `mediumpurple` | Forwarded message indicator |
@@ -281,10 +281,21 @@ with red for your own messages. Keys you leave out follow the preset.
 
 | Preset | Look |
 |--------|------|
-| `dark` | Cool tones for dark terminals (the default palette) |
+| `dark` | Cool tones, dark terminals (the default palette) |
 | `light` | Dark-on-white for light terminals |
+| `catppuccin` | [Catppuccin Macchiato](https://github.com/catppuccin/catppuccin): soft pastels on `#24273a` |
+| `tokyonight` | [Tokyo Night Storm](https://github.com/folke/tokyonight.nvim): indigo with neon accents |
+| `solarized` | [Solarized Osaka](https://github.com/craftzdog/solarized-osaka.nvim): sun-baked teal and violet |
 | `classic` | The pre-1.3 ANSI palette, automatically lifted to pass the contrast floor |
 | `mono` | Greyscale, no colour at all |
+
+The editor ports are taken from the upstream palettes rather than approximated:
+headers and unread counts take the scheme's warm accent, contacts its green,
+groups and your own messages its blue, borders the faintest tone that still
+clears the 3:1 graphical floor, and the input row sits on a raised surface. Where
+a scheme's own choice fell below the 4.5:1 text floor (Osaka's magenta and red)
+the next step of the same ramp is used, so these presets never need lifting at
+load time — unlike `classic`.
 
 Run `/theme` in-app to browse them: the highlight previews each palette on the
 whole UI, `Enter` applies it for the session and `Esc` puts the previous one

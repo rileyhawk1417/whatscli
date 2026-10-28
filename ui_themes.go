@@ -12,10 +12,9 @@ import (
 // to hand-write 14 colour keys to get a readable UI: `theme = dark` selects one
 // wholesale (see loadTheme).
 //
-// Every preset assumes the terminal background matches its name and leaves
-// `background` at "black" or "white" accordingly, because the UI only paints
-// the top bar and the input line — the rest of the frame keeps the terminal's
-// own background.
+// Every preset sets its own `background`, because the paint pass covers the
+// whole surface (see D10): the terminal's background never shows through, so a
+// light preset stays readable on a dark terminal.
 type themePreset struct {
 	Name   string
 	Desc   string
@@ -65,6 +64,83 @@ func builtinThemes() []themePreset {
 				UnreadCount:     "#953800",
 				Positive:        "#116329",
 				Negative:        "#a40e26",
+				AutoContrast:    true,
+			},
+		},
+		// The three presets below are ports of popular editor colourschemes. Each
+		// value is taken from the upstream palette rather than invented, and each
+		// foreground is a colour the scheme already uses for that kind of thing:
+		//
+		//   catppuccin  https://github.com/catppuccin/catppuccin (macchiato)
+		//   tokyonight  https://github.com/folke/tokyonight.nvim (storm)
+		//   solarized   https://github.com/craftzdog/solarized-osaka.nvim (dark)
+		//
+		// Roles are mapped by meaning: header/unread take the scheme's warm accent,
+		// contacts the green, groups and own messages the blue, borders the faintest
+		// tone that still clears the 3:1 graphical floor, and the input row sits on
+		// a raised surface. Where a scheme's own choice fell below the text floor
+		// (osaka's magenta and red) the brighter step of the same ramp is used, so
+		// the preset needs no lifting at load time.
+		{
+			Name: "catppuccin",
+			Desc: "macchiato, soft pastels",
+			Colors: config.Colors{
+				Background:      "#24273a",
+				Text:            "#cad3f5",
+				ForwardedText:   "#c6a0f6",
+				ListHeader:      "#eed49f",
+				ListContact:     "#a6da95",
+				ListGroup:       "#8aadf4",
+				ChatContact:     "#8bd5ca",
+				ChatMe:          "#7dc4e4",
+				Borders:         "#6e738d",
+				InputBackground: "#494d64",
+				InputText:       "#cad3f5",
+				UnreadCount:     "#f5a97f",
+				Positive:        "#a6da95",
+				Negative:        "#ed8796",
+				AutoContrast:    true,
+			},
+		},
+		{
+			Name: "tokyonight",
+			Desc: "storm, deep indigo",
+			Colors: config.Colors{
+				Background:      "#24283b",
+				Text:            "#c0caf5",
+				ForwardedText:   "#bb9af7",
+				ListHeader:      "#e0af68",
+				ListContact:     "#9ece6a",
+				ListGroup:       "#7aa2f7",
+				ChatContact:     "#73daca",
+				ChatMe:          "#2ac3de",
+				Borders:         "#737aa2",
+				InputBackground: "#292e42",
+				InputText:       "#c0caf5",
+				UnreadCount:     "#ff9e64",
+				Positive:        "#9ece6a",
+				Negative:        "#f7768e",
+				AutoContrast:    true,
+			},
+		},
+		{
+			Name: "solarized",
+			Desc: "osaka, sun-baked teal",
+			Colors: config.Colors{
+				Background:      "#001419",
+				Text:            "#adb7b7",
+				ForwardedText:   "#8084db",
+				ListHeader:      "#f254a1",
+				ListContact:     "#849900",
+				ListGroup:       "#268bd3",
+				ChatContact:     "#29a298",
+				ChatMe:          "#268bd3",
+				Borders:         "#57767f",
+				InputBackground: "#04313f",
+				InputText:       "#adb7b7",
+				UnreadCount:     "#b28500",
+				Positive:        "#849900",
+				Negative:        "#f55350",
 				AutoContrast:    true,
 			},
 		},
@@ -198,8 +274,8 @@ func (p *themePicker) selected() string { return p.choices[p.cursor].Name }
 // render draws the menu as a bordered box sized to its content.
 func (p *themePicker) render(th *theme) string {
 	const (
-		inner = 46
-		nameW = 10
+		inner = 50
+		nameW = 12
 	)
 	title := lipgloss.NewStyle().Foreground(th.ListHeader).Bold(true)
 	name := lipgloss.NewStyle().Foreground(th.Text).Bold(true)
