@@ -110,6 +110,51 @@ func TestEditorPresetsMatchUpstreamBases(t *testing.T) {
 
 // TestPickerFitsEveryPresetName guards the widened name column: a name wider
 // than the column would push the description left and break the box frame.
+// TestFullyOverriddenConfigStillSeesPresets reproduces the reported bug: a
+// config that sets every [colors] key made every preset render identical to
+// the startup palette, because the pick merged the overrides back in.
+func TestFullyOverriddenConfigStillSeesPresets(t *testing.T) {
+	m := themeModel(t)
+	m.baseColors = *config.Config.Colors
+	m.baseColors.Background = "black"
+	m.baseColors.Text = "white"
+	prev := config.ColorKeysSet
+	config.ColorKeysSet = map[string]bool{}
+	for _, k := range []string{"background", "text", "forwarded_text", "list_header", "list_contact",
+		"list_group", "chat_contact", "chat_me", "borders", "input_background", "input_text",
+		"unread_count", "positive", "negative"} {
+		config.ColorKeysSet[k] = true
+	}
+	t.Cleanup(func() { config.ColorKeysSet = prev })
+
+	if err := m.applyThemeName("catppuccin"); err != nil {
+		t.Fatalf("applyThemeName: %v", err)
+	}
+	wantBg, _ := resolveColor("#24273a")
+	wantText, _ := resolveColor("#cad3f5")
+	if m.th.Background != wantBg {
+		t.Errorf("catppuccin pick kept the config background %q", m.th.Background)
+	}
+	if m.th.Text != wantText {
+		t.Errorf("catppuccin pick kept the config text %q", m.th.Text)
+	}
+
+	// The picker cursor starts on catppuccin in this state, and restoring
+	// "custom" must bring the original palette back.
+	p := newThemePicker(m.themeName)
+	if p.selected() != "catppuccin" {
+		t.Errorf("picker opened on %q, want the active preset", p.selected())
+	}
+	if err := m.applyThemeName(""); err != nil {
+		t.Fatalf("applyThemeName(custom): %v", err)
+	}
+	black, _ := resolveColor("black")
+	white, _ := resolveColor("white")
+	if m.th.Background != black || m.th.Text != white {
+		t.Error("custom did not restore the startup palette")
+	}
+}
+
 func TestPickerFitsEveryPresetName(t *testing.T) {
 	for _, p := range themeChoices() {
 		if len(p.Name) > 11 {
@@ -464,7 +509,7 @@ func resolveHex(t *testing.T, value string) string {
 // ansiPlain strips escape sequences for text comparisons.
 func ansiPlain(s string) string { return ansi.Strip(s) }
 
-func TestPresetPickKeepsConfigColorOverrides(t *testing.T) {
+func TestPresetPickReplacesPaletteWholesale(t *testing.T) {
 	m := themeModel(t)
 	m.baseColors = *config.Config.Colors
 	m.baseColors.ChatMe = "red"
@@ -481,16 +526,20 @@ func TestPresetPickKeepsConfigColorOverrides(t *testing.T) {
 	if err := m.applyThemeName("mono"); err != nil {
 		t.Fatalf("applyThemeName: %v", err)
 	}
-	if m.th.ChatMe == monoChat {
-		t.Error("picking a preset dropped the config file's chat_me override")
+	if m.th.ChatMe != monoChat {
+		t.Error("picking a preset did not replace chat_me wholesale")
 	}
 	if m.th.Text != presetColorsText(t, "mono") {
 		t.Error("picking a preset did not apply the rest of the preset")
 	}
 
-	// "custom" returns to exactly what startup produced.
+	// "custom" returns to exactly what startup produced, overrides included.
 	if err := m.applyThemeName(""); err != nil {
 		t.Fatalf("applyThemeName: %v", err)
+	}
+	red, _ := resolveColor("red")
+	if m.th.ChatMe != red {
+		t.Errorf("custom did not restore the chat_me override (got %q)", m.th.ChatMe)
 	}
 	if m.th.Text == presetColorsText(t, "mono") {
 		t.Error("custom still renders the mono preset")

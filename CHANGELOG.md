@@ -5,6 +5,11 @@ All notable changes to the WhatsApp CLI application will be documented in this f
 ## [Unreleased]
 
 ### Fixed
+- The `/theme` picker previews and applies presets as defined. A config that
+  sets all fourteen `[colors]` keys used to make every preset render
+  identically to the startup palette, because picks merged the config keys
+  back in; now a pick replaces the palette wholesale (overrides pause for the
+  session and `custom` restores them), which the confirmation line states.
 - Chat lists name people instead of showing bare phone numbers. Names come from
   the address book, then the contact's own push name, then a verified business
   name; chats created before WhatsApp delivered that data are relabelled too

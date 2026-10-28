@@ -558,6 +558,9 @@ func (m uiModel) selectTheme(name string) uiModel {
 	if m.themeName != "" && m.themeName != strings.ToLower(strings.TrimSpace(m.baseColors.Theme)) {
 		line += fmt.Sprintf(" (set [colors] theme = %s to keep it)", m.themeName)
 	}
+	if m.themeName != "" && len(config.ColorKeysSet) > 0 {
+		line += "\nYour [colors] overrides are paused for this session; pick custom to restore them."
+	}
 	m.msgs.addText(line, m.th)
 	return m
 }
@@ -619,13 +622,16 @@ func (m *uiModel) applyThemeName(name string) error {
 		// fine-tune the configured preset.
 		th, err = loadThemeWith(m.baseColors, config.ColorKeysSet)
 	} else {
+		// An explicit pick replaces the palette exactly as defined, overriding
+		// config keys included: "previews each palette on the whole UI" would
+		// be a no-op otherwise (with all 14 keys set, every preset would render
+		// as the current theme). The config wins only at startup; "custom" or
+		// Esc restores it.
 		preset, ok := findTheme(name)
 		if !ok {
 			return fmt.Errorf("unknown theme %q (available: %s)", name, strings.Join(themeNames(), ", "))
 		}
-		palette := mergePalette(preset.Colors, m.baseColors, config.ColorKeysSet)
-		palette.Theme = "" // the palette now holds the preset values
-		th, err = loadThemeWith(palette, nil)
+		th, err = loadThemeWith(preset.Colors, nil)
 	}
 	if err != nil {
 		return err

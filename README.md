@@ -300,6 +300,9 @@ load time — unlike `classic`.
 Run `/theme` in-app to browse them: the highlight previews each palette on the
 whole UI, `Enter` applies it for the session and `Esc` puts the previous one
 back. Nothing is written to disk — copy the name into `theme = …` to keep it.
+An explicit pick or preview applies the preset exactly as defined; your own
+`[colors]` keys stay active only at startup. In the picker, `custom` is the
+escape hatch back to those values.
 
 Themes paint the terminal: the whole surface is covered with the `background`
 value and the input row with `input_background`, so even a dark-on-white theme

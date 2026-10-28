@@ -179,12 +179,18 @@ the contrast floor lifts) and `mono` (greyscale). The rules:
    every switch, and the shipped presets are chosen so that the floor has
    nothing to lift. The `classic` preset exists precisely so the lifted legacy
    palette is still available under a name.
+5. **An explicit pick replaces the palette wholesale.** Rule 1 applies at
+   startup only. When the picker previews or `Enter` applies a preset, it is
+   built with `loadThemeWith(preset.Colors, nil)` — no override merge. This
+   was not the case originally and it made the picker a no-op for any config
+   that sets all fourteen `[colors]` keys: every preset rendered byte-for-byte
+   as the startup palette (reported with Catppuccin cursor showing, screen
+   unchanged). The confirmation line now says the overrides are paused and
+   that `custom` restores them. `Esc` still restores exactly the palette that
+   was active before the picker opened.
 
-Known limitation, documented in the README: whatscli does not paint its own
-background, so the frame and message area show the terminal's. The `light`
-preset therefore assumes a light terminal, which is also why the preset is
-described rather than auto-detected — `theme` stays explicit so a user on a
-light terminal never gets dark-on-dark after an upgrade.
+Superseded note: the "whatscli does not paint its own background" limitation
+below is gone since D10; see that section.
 
 ## D10. Painted surfaces
 
