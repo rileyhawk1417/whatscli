@@ -84,6 +84,19 @@ func (m *MockUiHandler) PrintCommands()                  { m.mu.Lock(); defer m.
 func (m *MockUiHandler) PrintHelp()                      { m.mu.Lock(); defer m.mu.Unlock(); m.HelpCalled++ }
 func (m *MockUiHandler) Quit()                           { m.mu.Lock(); defer m.mu.Unlock(); m.QuitCalled++ }
 
+// ScreenMessages returns the messages pushed in the i-th NewScreen call. Safe
+// to call while backend goroutines are still running.
+func (m *MockUiHandler) ScreenMessages(i int) []Message {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if i >= len(m.Screens) {
+		return nil
+	}
+	out := make([]Message, len(m.Screens[i]))
+	copy(out, m.Screens[i])
+	return out
+}
+
 // HasText reports whether the handler was asked to print text. Safe to call
 // while backend goroutines are still running.
 func (m *MockUiHandler) HasText(text string) bool {

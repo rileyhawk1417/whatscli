@@ -85,6 +85,58 @@ func TestApplyContactNamesRelabelsPhoneChats(t *testing.T) {
 	}
 }
 
+// TestOpenChatRefreshesOnRename covers plan item C3: when the renamed chat is
+// the open one, the backend pushes a fresh screen so the pane re-reads the
+// relabelled history instead of keeping bare-number sender labels.
+func TestOpenChatRefreshesOnRename(t *testing.T) {
+	sm, mock := newTestSessionManager(t)
+
+	jid := types.NewJID("263771234567", types.DefaultUserServer)
+	conv := &Conversation{JID: jid.String(), Name: jid.User, Preview: "Hello", LastMsgTime: 1000}
+	heap.Push(&sm.priorityQueue, conv)
+	sm.convByJID[conv.JID] = conv
+	if err := sm.db.AddMessage(Message{
+		Id: "m1", ChatId: conv.JID, ContactId: conv.JID, ContactName: jid.User,
+		ContactShort: jid.User, Timestamp: 1000, Text: "Hello",
+	}); err != nil {
+		t.Fatalf("AddMessage: %v", err)
+	}
+	sm.currentReceiver = conv.JID
+
+	if ren := sm.applyContactNames(map[types.JID]types.ContactInfo{
+		jid: {Found: true, PushName: "Truth Ndlovu"},
+	}); ren != 1 {
+		t.Fatalf("applyContactNames() renamed %d chats, want 1", ren)
+	}
+	mock.mu.Lock()
+	screens := len(mock.Screens)
+	mock.mu.Unlock()
+	if screens != 1 {
+		t.Fatalf("open chat got %d screen refreshes, want 1", screens)
+	}
+	msgs := mock.ScreenMessages(0)
+	if len(msgs) != 1 || msgs[0].ContactName != "Truth Ndlovu" {
+		t.Errorf("refreshed screen = %+v, want relabelled history", msgs)
+	}
+
+	// Unrelated renames of other chats must not disturb the open pane.
+	other := types.NewJID("263700000001", types.DefaultUserServer)
+	otherConv := &Conversation{JID: other.String(), Name: other.User, Preview: "hey", LastMsgTime: 900}
+	heap.Push(&sm.priorityQueue, otherConv)
+	sm.convByJID[otherConv.JID] = otherConv
+	if ren := sm.applyContactNames(map[types.JID]types.ContactInfo{
+		other: {Found: true, PushName: "Unrelated"},
+	}); ren != 1 {
+		t.Fatalf("second applyContactNames() renamed %d chats, want 1", ren)
+	}
+	mock.mu.Lock()
+	screens = len(mock.Screens)
+	mock.mu.Unlock()
+	if screens != 1 {
+		t.Errorf("unrelated rename produced %d screen refreshes, want still 1", screens)
+	}
+}
+
 func TestApplyContactNamesLeavesGroupsAndUnknownChatsAlone(t *testing.T) {
 	sm, mock := newTestSessionManager(t)
 

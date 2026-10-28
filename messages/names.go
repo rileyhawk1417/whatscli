@@ -96,6 +96,18 @@ func (sm *SessionManager) applyContactNames(contacts map[types.JID]types.Contact
 			sm.uiHandler.PrintError(fmt.Errorf("rename stored messages: %v", err))
 		}
 	}
+	// If the renamed chat is the one currently open, refresh the pane so its
+	// stored sender labels are re-read instead of keeping the bare numbers
+	// baked in at selection time (plan item C3).
+	sm.mu.RLock()
+	receiver := sm.currentReceiver
+	sm.mu.RUnlock()
+	for _, jidStr := range chatIDs {
+		if jidStr == receiver {
+			sm.uiHandler.NewScreen(sm.getMessages(jidStr))
+			break
+		}
+	}
 	sm.uiHandler.UpdateChatList(list)
 	return len(renamed)
 }
@@ -125,6 +137,14 @@ func (sm *SessionManager) renameConversation(jid types.JID, name string) {
 	}
 	if err := sm.db.UpdateChatContactName(jid.String(), name); err != nil {
 		sm.uiHandler.PrintError(fmt.Errorf("rename stored messages: %v", err))
+	}
+	// Same retro-rename as applyContactNames: a live name event for the open
+	// chat refreshes the pane with the relabelled history (plan item C3).
+	sm.mu.RLock()
+	receiver := sm.currentReceiver
+	sm.mu.RUnlock()
+	if receiver == jid.String() {
+		sm.uiHandler.NewScreen(sm.getMessages(jid.String()))
 	}
 	sm.uiHandler.UpdateChatList(list)
 }

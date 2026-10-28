@@ -177,6 +177,16 @@ func (m uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case msgChatList:
 		m.side.setConversations(msg.pq)
+		// Retro-rename of the open chat: the pane title is baked in at
+		// selection time, so keep it in sync when a fresh name arrives for the
+		// same JID (plan item C3). Also covers "opened the numeric placeholder,
+		// the name arrived later".
+		for _, conv := range msg.pq {
+			if conv.JID == m.currentChat.Id && conv.Name != "" && conv.Name != m.currentChat.Name {
+				m.currentChat.Name = conv.Name
+				m.msgs.setTitle(conv.Name)
+			}
+		}
 		return m, nil
 
 	case msgSession:
