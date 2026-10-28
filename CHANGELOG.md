@@ -21,6 +21,9 @@ All notable changes to the WhatsApp CLI application will be documented in this f
   and a rejected handshake no longer flips the status bar to "online".
 
 ### Changed
+- Sidebar timestamps for messages older than today show the date without a
+  year (`Sep 13`), which fits the 30-cell sidebar instead of truncating into
+  nonsense; the message pane keeps the full date.
 - The TUI now runs on [Bubbletea](https://github.com/charmbracelet/bubbletea),
   [Bubbles](https://github.com/charmbracelet/bubbles) and
   [Lip Gloss](https://github.com/charmbracelet/lipgloss); `tview`, `tcell` and
@@ -45,6 +48,15 @@ All notable changes to the WhatsApp CLI application will be documented in this f
   whole surface, `input_background` the input row) instead of letting the
   terminal's own colours show through, so `theme = light` is legible even on a
   dark terminal.
+- Custom theme files: any `~/.config/whatscli/themes/<name>.ini` with a
+  `[colors]` section becomes a selectable theme (`theme = <name>`, listed in
+  `/theme`). Keys a file leaves out follow the `dark` preset, files cannot
+  shadow a built-in name, and quoted or bare `#rrggbb` values both parse.
+- `/theme save` keeps the current theme: with a preset active it writes
+  `theme = <preset>` and removes the overrides the preset replaced (the
+  original config is preserved as `whatscli.config.bak` on first save); with
+  a custom palette active your keys are kept. `/theme reset` returns to what
+  the config file produced at startup.
 - Three editor-derived themes: `catppuccin` (Macchiato, `#24273a`), `tokyonight`
   (Storm, `#24283b`) and `solarized` (Osaka dark, `#001419`). Each maps the
   scheme's own roles onto the 14 config keys and uses a brighter step of the

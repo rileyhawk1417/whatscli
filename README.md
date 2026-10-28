@@ -299,10 +299,23 @@ load time — unlike `classic`.
 
 Run `/theme` in-app to browse them: the highlight previews each palette on the
 whole UI, `Enter` applies it for the session and `Esc` puts the previous one
-back. Nothing is written to disk — copy the name into `theme = …` to keep it.
-An explicit pick or preview applies the preset exactly as defined; your own
-`[colors]` keys stay active only at startup. In the picker, `custom` is the
+back. An explicit pick or preview applies the preset exactly as defined; your
+own `[colors]` keys stay active only at startup. In the picker, `custom` is the
 escape hatch back to those values.
+
+Two subcommands manage persistence:
+
+- `/theme save` — keeps the current theme. With a preset active it writes
+  `theme = <preset>` into the config and removes the color-key overrides the
+  preset replaced (your keys stay in `whatscli.config.bak`, created on the
+  first save). With `custom` active your own keys are kept and only the
+  `theme` key made explicit.
+- `/theme reset` — back to exactly what the config file produced at startup.
+
+Custom palettes live in their own INI files: `~/.config/whatscli/themes/<name>.ini`
+with the same `[colors]` keys as the main config, plus `theme = <name>`. Keys a
+file leaves out follow the `dark` preset, files cannot shadow built-in names,
+and `/theme` lists them in the picker.
 
 Themes paint the terminal: the whole surface is covered with the `background`
 value and the input row with `input_background`, so even a dark-on-white theme

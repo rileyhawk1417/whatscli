@@ -43,7 +43,7 @@ func helpText(th *theme) string {
 	line(helpLine(th, "Up/Down", "Scroll Chats/History"))
 	line(helpLine(th, km.SwitchPanels, "Switch Panel"))
 	line(helpLine(th, km.FocusMessages, "Focus Messages"))
-	line(helpLine(th, cmdPrefix+"theme [name]", "Change Theme ("+themeHint()+")"))
+	line(helpLine(th, cmdPrefix+"theme [name|save|reset]", "Change Theme ("+themeHint()+")"))
 	line(helpLine(th, "Ctrl+p", "Toggle Mouse"))
 	line("")
 

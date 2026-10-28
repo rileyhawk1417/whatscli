@@ -2,10 +2,14 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/normen/whatscli/config"
+	"gopkg.in/ini.v1"
 )
 
 // themePreset is a complete, named palette. Presets exist so users do not have
@@ -197,7 +201,69 @@ func findTheme(name string) (themePreset, bool) {
 			return p, true
 		}
 	}
+	// Custom theme files: ~/.config/whatscli/themes/<name>.ini (plan item D2).
+	// Built-ins always win over files, so a file cannot shadow a preset.
+	if p, ok := loadCustomThemePreset(name); ok {
+		return p, true
+	}
 	return themePreset{}, false
+}
+
+// loadCustomThemePreset reads themes/<name>.ini from the config directory and
+// builds a palette from its [colors] section. Keys the file does not set fall
+// back to the `dark` preset, so a minimal file still renders readably. The
+// parsed palette carries no `theme` key of its own, which keeps the lookup
+// from recursing. Errors are silent — findTheme only reports "not found", and
+// loadThemeWith produces the standard unknown-theme message for a name that
+// resolves to nothing.
+func loadCustomThemePreset(name string) (themePreset, bool) {
+	dir := config.GetThemesDir()
+	if dir == "" || name == "" {
+		return themePreset{}, false
+	}
+	if strings.ContainsAny(name, "/\\") || name == "." || name == ".." {
+		return themePreset{}, false
+	}
+	// IgnoreInlineComment so quoted or bare hex ("#ff79c6") survives the
+	// go-ini inline-comment rule that otherwise truncates at "#".
+	cfg, err := ini.LoadSources(ini.LoadOptions{IgnoreInlineComment: true},
+		filepath.Join(dir, name+".ini"))
+	if err != nil {
+		return themePreset{}, false
+	}
+	section, err := cfg.GetSection("colors")
+	if err != nil {
+		return themePreset{}, false
+	}
+	colors := builtinThemes()[0].Colors // dark fill for keys the file omits
+	cfg.NameMapper = ini.TitleUnderscore
+	if err := section.MapTo(&colors); err != nil {
+		return themePreset{}, false
+	}
+	colors.Theme = ""
+	return themePreset{Name: name, Desc: "custom (themes/" + name + ".ini)", Colors: colors}, true
+}
+
+// customThemeNames lists the custom theme files available in the themes
+// directory, sorted, for themeNames and themeChoices.
+func customThemeNames() []string {
+	dir := config.GetThemesDir()
+	if dir == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".ini") {
+			continue
+		}
+		names = append(names, strings.ToLower(strings.TrimSuffix(e.Name(), ".ini")))
+	}
+	sort.Strings(names)
+	return names
 }
 
 // themeNames lists the preset names, for error messages.
@@ -207,7 +273,7 @@ func themeNames() []string {
 	for _, p := range presets {
 		names = append(names, p.Name)
 	}
-	return names
+	return append(names, customThemeNames()...)
 }
 
 // customThemeName is the pseudo-preset meaning "use the [colors] values from
@@ -220,7 +286,13 @@ func themeChoices() []themePreset {
 		Name: customThemeName,
 		Desc: "your own [colors] values",
 	}}
-	return append(choices, builtinThemes()...)
+	choices = append(choices, builtinThemes()...)
+	for _, name := range customThemeNames() {
+		if p, ok := loadCustomThemePreset(name); ok {
+			choices = append(choices, p)
+		}
+	}
+	return choices
 }
 
 // resolveThemeName maps an empty/current name to the label shown in the UI.

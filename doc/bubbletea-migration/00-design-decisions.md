@@ -249,7 +249,51 @@ ports honest:
 Consequence for the selector: preset names no longer fit in the old 9-cell
 name column, so `themePicker.render` widened it (and the box) to 11 cells / 50
 inner columns. `themeNames()` still preserves declaration order with `mono`
-last, which is what the picker clamp test asserts.
+last, which is what the picker clamp test asserts — and now also lists custom
+theme files (D2 below), sorted, after the built-ins.
+
+### D9a. Persistence: `/theme save` and `/theme reset`
+
+The picker was session-only, which meant every restart re-read the same
+overridden palette. The save/reset subcommands close that loop with these
+rules:
+
+1. **Save with a preset active replaces keys it covers.** `config.SaveTheme`
+   sets `theme = <preset>` and deletes every palette key the file contains
+   (`colorKeyNames`, the canonical 14 + `theme` + `auto_contrast`), keeping
+   `auto_contrast` — the preset now *is* the palette, so redundant keys would
+   re-introduce the B2 no-op on the next startup. The original file is
+   preserved untouched as `whatscli.config.bak`, written only on the first
+   save so repeated saves cannot clobber the pristine copy.
+2. **Save with `custom` active keeps the user's keys.** A custom palette is
+   the user's own `[colors]` work; only the `theme` key is made explicit (or,
+   when `theme` already names a preset but the user reverted to `custom`
+   state, the same keys-kept path applies). Deleting overrides here would
+   silently destroy input that is not reconstructible.
+3. **Round-trip must not corrupt hex.** `gopkg.in/ini.v1` treats `#` as an
+   inline comment, so a plain `ini.Load` mangles values like
+   `background = "#0000ff"` into `"` on the way back out. SaveTheme loads
+   with `LoadOptions{IgnoreInlineComment: true}` — the same liberal parse the
+   custom-theme-file loader (D9b) uses. The startup read stays strict: bare
+   hex would still be truncated there, which is why defaults use colour
+   names and the README tells users to quote hex.
+4. **`reset` means "what the file produced at startup".** It re-applies the
+   captured `baseColors` + `ColorKeysSet`, i.e. the exact palette the model
+   was built with — not the `theme` key's preset, which the file may not even
+   express (all-14-keys configs).
+
+### D9b. Custom theme files
+
+`findTheme` falls back to `~/.config/whatscli/themes/<name>.ini` when a name
+is not a built-in: `config.GetThemesDir()` (next to the config file, empty
+when no config path is known) is scanned for `<name>.ini`, its `[colors]`
+section is mapped onto a copy of the `dark` preset (missing keys fall back to
+dark, `auto_contrast` defaults on), and `theme` is blanked so the lookup
+cannot recurse. Built-ins always win over files, files cannot shadow preset
+names, path segments (`/`, `\`, `.`) are rejected, and `themeNames()` /
+`themeChoices()` list the files sorted after the built-ins so the picker
+behaviour for preset-only configs is unchanged. Theme files are parsed
+liberally (`IgnoreInlineComment`) so quoted or bare `#rrggbb` both work.
 
 ## Version pins (task 01)
 

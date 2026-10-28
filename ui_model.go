@@ -66,6 +66,8 @@ type uiModel struct {
 	baseColors config.Colors
 	themeName  string
 	picker     *themePicker
+	// configPath is where /theme save writes; captured at startup for tests.
+	configPath string
 
 	// Login screen bookkeeping. showQR runs once a second (countdown tick),
 	// so it records what it last rendered: the whole screen is rebuilt only
@@ -103,6 +105,7 @@ func newUIModel(th *theme, sm *messages.SessionManager, keys keyMap) uiModel {
 		sm:         sm,
 		baseColors: *config.Config.Colors,
 		themeName:  strings.ToLower(strings.TrimSpace(config.Config.Colors.Theme)),
+		configPath: config.GetConfigFilePath(),
 		statusInfo: messages.SessionStatus{
 			Connected: false,
 		},
@@ -548,13 +551,61 @@ func (m uiModel) submitInput() (tea.Model, tea.Cmd) {
 // ---- themes ----------------------------------------------------------------
 
 // handleThemeCommand handles /theme. With no argument it opens the selector;
-// with one it applies that preset directly.
+// with one it applies that preset directly; `save` persists the current choice
+// to the config file and `reset` restores whatever the file produced at
+// startup.
 func (m uiModel) handleThemeCommand(params []string) uiModel {
 	if len(params) == 0 {
 		m.picker = newThemePicker(m.themeName)
 		return m
 	}
+	switch params[0] {
+	case "save":
+		return m.saveTheme()
+	case "reset":
+		m = m.selectTheme("")
+		m.msgs.addText("restored the theme from the config file", m.th)
+		return m
+	}
 	return m.selectTheme(params[0])
+}
+
+// saveTheme writes the active theme to the config file. With a preset active,
+// the file's color-key overrides are removed (the preset now applies as
+// written, exactly what the picker did); with "custom", only the theme key
+// becomes explicit and the user's own keys stay.
+func (m uiModel) saveTheme() uiModel {
+	if m.themeName == "" {
+		name := strings.ToLower(strings.TrimSpace(m.baseColors.Theme))
+		if name == "" || name == customThemeName {
+			m.msgs.addText("save applies to presets; the palette currently comes " +
+				"from your own [colors] keys, which stay as they are. Pick a " +
+				"preset first if you want it kept.", m.th)
+			return m
+		}
+		if err := config.SaveTheme(m.configPath, name, false); err != nil {
+			m.msgs.addText(errorText(m.th, err), m.th)
+			return m
+		}
+		m.msgs.addText("saved theme = "+name+" (your [colors] keys are kept; " +
+			"backup at whatscli.config.bak)", m.th)
+		return m
+	}
+
+	if err := config.SaveTheme(m.configPath, m.themeName, true); err != nil {
+		m.msgs.addText(errorText(m.th, err), m.th)
+		return m
+	}
+	// Make the file state and the session state agree: "custom" and /theme
+	// reset now restore the saved preset, not the pre-save palette.
+	if preset, ok := findTheme(m.themeName); ok {
+		m.baseColors = preset.Colors
+	}
+	m.baseColors.Theme = m.themeName
+	config.Config.Colors.Theme = m.themeName
+	config.ColorKeysSet = map[string]bool{"theme": true}
+	m.msgs.addText("saved theme = "+m.themeName+" (backup at whatscli.config.bak)", m.th)
+	return m
 }
 
 // selectTheme applies a preset and reports the result in the message pane.
@@ -566,7 +617,7 @@ func (m uiModel) selectTheme(name string) uiModel {
 	label := resolveThemeName(m.themeName)
 	line := "theme: " + label
 	if m.themeName != "" && m.themeName != strings.ToLower(strings.TrimSpace(m.baseColors.Theme)) {
-		line += fmt.Sprintf(" (set [colors] theme = %s to keep it)", m.themeName)
+		line += fmt.Sprintf(" (set [colors] theme = %s or run /theme save)", m.themeName)
 	}
 	if m.themeName != "" && len(config.ColorKeysSet) > 0 {
 		line += "\nYour [colors] overrides are paused for this session; pick custom to restore them."

@@ -1,7 +1,10 @@
 package config
 
 import (
+	"errors"
+	"fmt"
 	"os"
+	"path/filepath"
 	"os/user"
 	"strings"
 
@@ -185,8 +188,45 @@ func colorKeys(section *ini.Section) map[string]bool {
 	return keys
 }
 
+// colorKeyNames lists the canonical keys of the [colors] section (the `theme`
+// and `auto_contrast` keys included). SaveTheme uses it to strip
+// preset-covered overrides — it never deletes `theme` (it writes it) or
+// `auto_contrast` (a user preference, not a palette entry). Keep in sync with
+// the Colors struct — colorNamesMatchStruct asserts they agree.
+var colorKeyNames = map[string]bool{
+	"theme": true, "auto_contrast": true, "background": true, "text": true,
+	"forwarded_text": true, "input_background": true, "input_text": true,
+	"borders": true, "list_header": true, "list_contact": true,
+	"list_group": true, "chat_contact": true, "chat_me": true,
+	"unread_count": true, "positive": true, "negative": true,
+}
+
 func GetConfigFilePath() string {
 	return configFilePath
+}
+
+// themesDirOverride is a test hook: when non-empty, GetThemesDir returns it.
+var themesDirOverride string
+
+// GetThemesDir returns the directory custom theme files are read from
+// (themes/ next to the config file), or "" when no config path is known
+// (tests without a config file). Custom theme INIs use the same [colors]
+// keys as the main config; see findTheme's file fallback.
+func GetThemesDir() string {
+	if themesDirOverride != "" {
+		return themesDirOverride
+	}
+	if configFilePath == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(configFilePath), "themes")
+}
+
+// SetThemesDirForTest points GetThemesDir at dir and returns a restore func.
+func SetThemesDirForTest(dir string) func() {
+	prev := themesDirOverride
+	themesDirOverride = dir
+	return func() { themesDirOverride = prev }
 }
 
 func GetSessionFilePath() string {
@@ -208,4 +248,58 @@ func GetHomeDir() string {
 		return home + string(os.PathSeparator)
 	}
 	return "." + string(os.PathSeparator)
+}
+
+// SaveTheme persists a theme choice to the config file: it sets the `theme`
+// key in [colors] and, for a preset pick, removes the color-key overrides the
+// file previously contained (a preset that applies "as written" is what the
+// picker promised; keeping the keys would silently re-impose them at the next
+// start). In the "custom" state (the empty name) nothing is deleted — the
+// file's own keys stay — because a custom palette cannot be serialized as a
+// preset until custom theme files exist (plan item D2).
+//
+// The original file is copied to <config>.bak before the first write-back,
+// so a bad save is always one `mv` away from being undone.
+func SaveTheme(path, name string, removeOverrides bool) error {
+	if path == "" {
+		return errors.New("no config file path recorded")
+	}
+	original, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read config: %w", err)
+	}
+	cfg, err := ini.LoadSources(ini.LoadOptions{IgnoreInlineComment: true}, path)
+	if err != nil {
+		return fmt.Errorf("parse config: %w", err)
+	}
+	section, err := cfg.GetSection("colors")
+	if err != nil {
+		section, err = cfg.NewSection("colors")
+		if err != nil {
+			return fmt.Errorf("create [colors]: %w", err)
+		}
+	}
+	if removeOverrides {
+		for _, key := range section.KeyStrings() {
+			lower := strings.ToLower(key)
+			if lower == "theme" || lower == "auto_contrast" {
+				continue
+			}
+			if colorKeyNames[lower] {
+				section.DeleteKey(key)
+			}
+		}
+	}
+	section.Key("theme").SetValue(name)
+	// First write-back only: keep the pristine copy even across further saves.
+	bak := path + ".bak"
+	if _, statErr := os.Stat(bak); os.IsNotExist(statErr) {
+		if err := os.WriteFile(bak, original, 0o600); err != nil {
+			return fmt.Errorf("write backup: %w", err)
+		}
+	}
+	if err := cfg.SaveTo(path); err != nil {
+		return fmt.Errorf("write config: %w", err)
+	}
+	return nil
 }

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -558,4 +560,263 @@ func presetColorsText(t *testing.T, name string) lipgloss.Color {
 		t.Fatalf("resolveColor: %v", err)
 	}
 	return col
+}
+
+// ---- /theme save and reset --------------------------------------------------
+
+// writeSaveConfig writes a config with explicit color overrides and returns
+// its path, for the /theme save tests.
+func writeSaveConfig(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "whatscli.config")
+	content := "[colors]\ntheme = dark\nbackground = black\ntext = white\nchat_me = red\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	return path
+}
+
+func TestThemeSavePersistsPresetAndSyncsCustom(t *testing.T) {
+	m := themeModel(t)
+	m.configPath = writeSaveConfig(t)
+	if err := m.applyThemeName("tokyonight"); err != nil {
+		t.Fatalf("applyThemeName: %v", err)
+	}
+	want := presetColorsText(t, "tokyonight")
+
+	m = m.saveTheme()
+
+	data, err := os.ReadFile(m.configPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	saved := string(data)
+	if !strings.Contains(saved, "theme = tokyonight") {
+		t.Errorf("theme key missing from %q", saved)
+	}
+	if strings.Contains(saved, "background =") || strings.Contains(saved, "chat_me =") {
+		t.Errorf("overrides not stripped from %q", saved)
+	}
+	if _, err := os.Stat(m.configPath + ".bak"); err != nil {
+		t.Errorf("no backup after first save: %v", err)
+	}
+
+	// Session state: custom now means the saved preset, not the old palette.
+	if m.baseColors.Theme != "tokyonight" || config.Config.Colors.Theme != "tokyonight" {
+		t.Errorf("in-memory theme not synced: %q / %q", m.baseColors.Theme, config.Config.Colors.Theme)
+	}
+	if err := m.applyThemeName(""); err != nil {
+		t.Fatalf("applyThemeName(custom): %v", err)
+	}
+	if m.th.Text != want {
+		t.Errorf("custom after save = %q, want the saved tokyonight palette %q", m.th.Text, want)
+	}
+
+	// Cleanup for other tests: restore the globals saveTheme mutated.
+	t.Cleanup(func() {
+		config.Config.Colors.Theme = "dark"
+		config.ColorKeysSet = map[string]bool{}
+	})
+}
+
+func TestThemeSaveInCustomStateKeepsOverrides(t *testing.T) {
+	m := themeModel(t)
+	m.configPath = writeSaveConfig(t)
+	m.themeName = "" // custom: the palette comes from the file
+
+	m = m.saveTheme()
+
+	data, err := os.ReadFile(m.configPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	saved := squash(string(data))
+	if !strings.Contains(saved, "theme = dark") || !strings.Contains(saved, "chat_me = red") {
+		t.Errorf("custom save changed the overrides: %q", saved)
+	}
+}
+
+func TestThemeSaveInCustomStateWithoutThemeKeyExplains(t *testing.T) {
+	m := themeModel(t)
+	m.configPath = writeSaveConfig(t)
+	m.themeName = "" // custom
+	m.baseColors.Theme = ""
+
+	m = m.saveTheme()
+
+	for _, b := range m.msgs.blocks {
+		if b.kind == blockText && strings.Contains(b.text, "save applies to presets") {
+			return
+		}
+	}
+	t.Error("expected the explain-not-save message for a custom palette without a theme key")
+}
+
+func TestThemeResetRestoresFilePalette(t *testing.T) {
+	m := themeModel(t)
+	m.baseColors = *config.Config.Colors
+	m.baseColors.ChatMe = "red"
+	prev := config.ColorKeysSet
+	config.ColorKeysSet = map[string]bool{"chat_me": true}
+	t.Cleanup(func() { config.ColorKeysSet = prev })
+	wantText := m.th.Text
+	if err := m.applyThemeName("mono"); err != nil {
+		t.Fatalf("applyThemeName: %v", err)
+	}
+
+	m = m.handleThemeCommand([]string{"reset"})
+
+	if m.th.Text != wantText {
+		t.Error("reset did not restore the config-file (dark) palette")
+	}
+	if err := m.applyThemeName(""); err != nil {
+		t.Fatalf("applyThemeName: %v", err)
+	}
+	red, err := resolveColor("red")
+	if err != nil {
+		t.Fatalf("resolveColor: %v", err)
+	}
+	if m.th.ChatMe != red {
+		t.Errorf("after reset, custom chat_me = %q, want the config override red", m.th.ChatMe)
+	}
+}
+
+// squash collapses whitespace so asserts survive ini's key realignment on
+// save ("theme   = x" and "theme = x" compare equal).
+func squash(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
+// ---- custom theme files (plan item D2) -------------------------------------
+
+func writeCustomThemes(t *testing.T, files map[string]string) func() {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "themes")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(dir, name+".ini"), []byte(content), 0o600); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+	}
+	return config.SetThemesDirForTest(dir)
+}
+
+func TestFindThemeFallsBackToCustomFile(t *testing.T) {
+	restore := writeCustomThemes(t, map[string]string{"dracula": "[colors]\ntext = \"#ff79c6\"\nbackground = \"#282a36\"\nchat_me = red\n"})
+	t.Cleanup(restore)
+
+	p, ok := findTheme("dracula")
+	if !ok {
+		t.Fatal("custom file theme not found")
+	}
+	// File keys apply...
+	text, err := resolveColor(p.Colors.Text)
+	if err != nil {
+		t.Fatalf("resolveColor: %v", err)
+	}
+	want, _ := resolveColor("#ff79c6")
+	if text != want {
+		t.Errorf("text = %q, want the file's #ff79c6", text)
+	}
+	// ...and missing keys fall back to dark.
+	dark, _ := findTheme("dark")
+	darkUnread, _ := resolveColor(dark.Colors.UnreadCount)
+	gotUnread, _ := resolveColor(p.Colors.UnreadCount)
+	if gotUnread != darkUnread {
+		t.Errorf("unread_count = %q, want dark preset's %q", gotUnread, darkUnread)
+	}
+	if p.Desc == "" || !strings.Contains(p.Desc, "dracula") {
+		t.Errorf("desc = %q, want it to name the file", p.Desc)
+	}
+	if p.Name != "dracula" {
+		t.Errorf("name = %q", p.Name)
+	}
+}
+
+func TestBuiltinThemesShadowCustomFiles(t *testing.T) {
+	// A file named dark.ini must not override the built-in dark preset.
+	restore := writeCustomThemes(t, map[string]string{"dark": "[colors]\ntext = red\n"})
+	t.Cleanup(restore)
+
+	p, ok := findTheme("dark")
+	if !ok {
+		t.Fatal("dark not found")
+	}
+	builtin, _ := findTheme("dark")
+	want, _ := resolveColor(builtin.Colors.Text)
+	gotText, _ := resolveColor(p.Colors.Text)
+	if gotText != want {
+		t.Errorf("custom file shadowed the builtin: text %q ≠ %q", gotText, want)
+	}
+}
+
+func TestThemeNamesAndChoicesListCustomFiles(t *testing.T) {
+	restore := writeCustomThemes(t, map[string]string{
+		"zeta":   "[colors]\ntext = white\n",
+		"alpha2": "[colors]\ntext = white\n",
+	})
+	t.Cleanup(restore)
+
+	names := themeNames()
+	found := 0
+	for _, n := range names {
+		if n == "alpha2" || n == "zeta" {
+			found++
+		}
+	}
+	if found != 2 {
+		t.Errorf("custom files missing from themeNames: %v", names)
+	}
+	// Custom files come after the built-ins so the picker order stays stable.
+	if names[len(names)-1] != "zeta" {
+		t.Errorf("last theme name = %q, want the sorted custom file", names[len(names)-1])
+	}
+
+	choices := themeChoices()
+	if choices[0].Name != customThemeName {
+		t.Errorf("first choice = %q, want custom", choices[0].Name)
+	}
+	if last := choices[len(choices)-1].Name; last != "zeta" {
+		t.Errorf("last choice = %q, want zeta", last)
+	}
+}
+
+func TestLoadCustomThemeRejectsPathTraversal(t *testing.T) {
+	restore := writeCustomThemes(t, map[string]string{"evil": "[colors]\ntext = red\n"})
+	t.Cleanup(restore)
+
+	for _, bad := range []string{"../evil", ".", "..", "", "sub/dir"} {
+		if _, ok := findTheme(bad); ok {
+			t.Errorf("findTheme(%q) unexpectedly resolved", bad)
+		}
+	}
+}
+
+func TestThemePickAppliesCustomFile(t *testing.T) {
+	restore := writeCustomThemes(t, map[string]string{"night": "[colors]\ntext = \"#e0e0ff\"\nbackground = \"#101018\"\n"})
+	t.Cleanup(restore)
+
+	m := themeModel(t)
+	if err := m.applyThemeName("night"); err != nil {
+		t.Fatalf("applyThemeName: %v", err)
+	}
+	if m.themeName != "night" {
+		t.Errorf("themeName = %q, want night", m.themeName)
+	}
+	text, _ := resolveColor("#e0e0ff")
+	if m.th.Text != text {
+		t.Errorf("text = %q, want the custom file's", m.th.Text)
+	}
+	// /theme save in this state must write "theme = night".
+	m.configPath = writeSaveConfig(t)
+	m = m.saveTheme()
+	data, err := os.ReadFile(m.configPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !strings.Contains(squash(string(data)), "theme = night") {
+		t.Errorf("save did not write the custom theme name: %q", string(data))
+	}
 }

@@ -68,32 +68,18 @@ Then fold results into the M4 table in `09-testing-and-qa.md` and tick the
    real chats; consider two shots (dark default + `theme = light`) since the
    surface is painted now.
 
-## C. User-decision items (each is a small task if accepted)
+## C. User-decision items
 
-| # | Decision | How to do it if accepted |
-|---|----------|--------------------------|
-| C1 | Replace the old loud palette: delete the whole `[colors]` section from `~/.config/whatscli/whatscli.config` so the new readable defaults apply | Back the file up first (`cp whatscli.config whatscli.config.bak`); deleting the section is all that is needed — absent keys fall back to built-in defaults (`theme = dark` included) |
-| C2 | Sidebar timestamp truncation at 30 cells (`Sep 13, 20`) | Either bump default `chat_sidebar_width` to ~34 or drop the year from `formatRelativeTime`; the latter keeps narrow terminals useful |
-| C3 | Retro-rename of the *open* chat after contact data arrives | Message pane reads from SQLite on selection only; to fix, trigger a pane refresh in `applyContactNames`/`renameConversation` when the renamed JID is the currently open chat |
+| # | Decision | Status |
+|---|----------|--------|
+| C1 | Replace the old loud palette: delete the whole `[colors]` section from `~/.config/whatscli/whatscli.config` so the new readable defaults apply | 📋 **user action** — back the file up first (`cp whatscli.config whatscli.config.bak`), then delete the section; absent keys fall back to built-in defaults. Or, once on the new build, just pick a preset and run `/theme save` |
+| C2 | Sidebar timestamp truncation at 30 cells (`Sep 13, 20`) | ✅ done (`3801248`) — old timestamps now show `Sep 13`; the message pane keeps the full date. Widening the default sidebar was rejected — drop-year keeps narrow terminals useful |
+| C3 | Retro-rename of the *open* chat after contact data arrives | ✅ done (`17065e3`) — `applyContactNames`/`renameConversation` push a `NewScreen` re-read when the renamed JID is the open chat, and `msgChatList` relabels `m.currentChat` in place for the placeholder-then-name case |
 
-## D. Theme feature follow-ups (optional, in rough priority order)
+## D. Theme feature follow-ups
 
-1. **`/theme save`** — persist the current preset to disk. Write-back via
-   `gopkg.in/ini.v1` on `GetConfigFilePath()`. Gotchas:
-   - Write color *names*, never bare hex (`#` starts a comment); if a quoted
-     hex must be preserved, keep the user's quoting (`resolveColor` strips
-     `"`, `'`, backticks, so round-tripping is possible by detecting them in
-     the raw key value).
-   - Only write the `theme` key plus keys the user explicitly customized
-     (`config.ColorKeysSet`); do not serialize the whole palette, or the file
-     stops tracking future preset improvements.
-   - Make a `.bak` copy before the first write-back.
-2. **Custom themes from a file** — `theme = mytheme` resolving to
-   `~/.config/whatscli/themes/mytheme.ini` with the same 14 `[colors]` keys.
-   Loading path: extend `findTheme` to try preset names first, then fall back
-   to an INI file parsed with `loadTheme(name-from-file)`; `themeChoices`
-   lists found files. The paint/contrast machinery needs no changes — it works
-   on any palette.
+1. **`/theme save` — done.**
+2. **Custom themes from a file — done.**
 3. **OSC 11 background detection** — lipgloss already probes at startup
    (that's the `\x1b]11;?` handshake the pty harness answers). Could pick
    `light` vs `dark` automatically for installs with *no* config file. Note:
@@ -145,7 +131,7 @@ Still open if wanted:
 
 ```
 C1 (one minute, user consent) → A (M4 sign-off, live account) → B (push/PR)
-→ C2/C3 → D1 (/theme save) → D2 (custom themes) → B4 (screenshot) → E
+→ B4 (screenshot) → E        [C2/C3 and D1/D2 are done]
 ```
 
-Nothing in C/D blocks anything else; A is the only true gate.
+Nothing in C/E blocks anything else; A is the only true gate.
